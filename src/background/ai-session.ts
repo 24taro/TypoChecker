@@ -1,18 +1,12 @@
 /// <reference path="../shared/types/chrome-ai.d.ts" />
 import type { AIAvailability, AIError, AIAnalysisResult } from '../shared/types/chrome-ai'
-import { PROMPTS, TEST_MODE, DUMMY_ERRORS } from '../shared/constants'
+import { PROMPTS } from '../shared/constants'
 
 export class AISessionManager {
   private session: LanguageModelSession | null = null
   private isInitializing = false
 
   async checkAvailability(): Promise<AIAvailability> {
-    // テストモードの場合は常に利用可能を返す
-    if (TEST_MODE.ENABLED) {
-      console.log('🧪 Test mode enabled - returning mock availability')
-      return 'readily'
-    }
-
     try {
       // Chrome 138+ では LanguageModel がグローバルで利用可能
       if (typeof LanguageModel === 'undefined') {
@@ -47,15 +41,6 @@ export class AISessionManager {
     this.isInitializing = true
 
     try {
-      // テストモードの場合はダミーセッションを作成
-      if (TEST_MODE.ENABLED) {
-        console.log('🧪 Test mode - creating mock session')
-        // ダミーセッションとしてオブジェクトを設定
-        this.session = {} as LanguageModelSession
-        this.isInitializing = false
-        return
-      }
-
       const availability = await this.checkAvailability()
       
       if (availability === 'no') {
@@ -95,21 +80,6 @@ export class AISessionManager {
       throw this.createError('SESSION_FAILED', 'AIセッションの作成に失敗しました。')
     }
 
-    // テストモードの場合はダミーエラーを返す
-    if (TEST_MODE.ENABLED) {
-      console.log('🧪 Test mode - returning mock errors for text:', text.substring(0, 50) + '...')
-      
-      // 遅延を追加してリアルな処理をシミュレート
-      await new Promise(resolve => setTimeout(resolve, TEST_MODE.DELAY_MS))
-      
-      // テストモードでは常にすべてのダミーエラーを表示（デバッグ用）
-      // 本番では適切な数に調整することを推奨
-      const selectedErrors = [...DUMMY_ERRORS]
-      
-      // JSON形式で返す
-      return JSON.stringify({ errors: selectedErrors })
-    }
-
     try {
       const prompt = PROMPTS.USER_TEMPLATE(text)
       
@@ -135,26 +105,63 @@ export class AISessionManager {
   }
 
   parseAnalysisResult(response: string): Partial<AIAnalysisResult> {
-    console.log('=== PARSING ANALYSIS RESULT ===')
-    console.log('📋 Raw response to parse:', response)
-    
     try {
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        console.warn('No JSON found in response:', response)
-        return { errors: [] }
-      }
-
-      console.log('🔍 Found JSON:', jsonMatch[0])
-      const parsed = JSON.parse(jsonMatch[0])
-      console.log('✅ Parsed result:', parsed)
-      
+      // まず直接JSONパースを試みる
+      const parsed = JSON.parse(response)
       return {
         errors: parsed.errors || [],
       }
-    } catch (error) {
-      console.error('❌ Failed to parse AI response:', error)
-      return { errors: [] }
+    } catch (firstError) {
+      // 直接パースに失敗した場合、JSON部分を抽出する
+      console.log('Direct JSON parse failed, trying to extract JSON from response')
+      
+      try {
+        // レスポンスからJSON部分を抽出（最初の{から最後の}まで）
+        const jsonMatch = response.match(/\{[\s\S]*\}/g)
+        
+        if (jsonMatch) {
+          // 複数のJSON候補がある場合は、errorsプロパティを含むものを探す
+          for (const candidate of jsonMatch) {
+            try {
+              const parsed = JSON.parse(candidate)
+              if (parsed.errors !== undefined) {
+                console.log('Successfully extracted and parsed JSON from response')
+                return {
+                  errors: parsed.errors || [],
+                }
+              }
+            } catch {
+              // このJSON候補は無効、次を試す
+              continue
+            }
+          }
+        }
+        
+        // コードブロック内のJSONを探す
+        const codeBlockMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/g)
+        if (codeBlockMatch) {
+          for (const block of codeBlockMatch) {
+            const jsonContent = block.replace(/```(?:json)?\s*/, '').replace(/\s*```$/, '')
+            try {
+              const parsed = JSON.parse(jsonContent)
+              if (parsed.errors !== undefined) {
+                console.log('Successfully extracted JSON from code block')
+                return {
+                  errors: parsed.errors || [],
+                }
+              }
+            } catch {
+              continue
+            }
+          }
+        }
+        
+        console.error('No valid JSON found in response:', response)
+        return { errors: [] }
+      } catch (error) {
+        console.error('Failed to extract JSON from response:', error)
+        return { errors: [] }
+      }
     }
   }
 
