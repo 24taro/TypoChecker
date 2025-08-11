@@ -1,4 +1,5 @@
 import { AISessionManager } from './ai-session'
+import type { PageContentMessage, Message } from '../shared/types/messages'
 
 console.log('TypoChecker Service Worker started')
 
@@ -60,7 +61,7 @@ async function handleStartAnalysis(tabId: number): Promise<void> {
     })
     
     return new Promise((resolve) => {
-      const listener = (message: any, sender: any) => {
+      const listener = (message: Message, sender: chrome.runtime.MessageSender) => {
         if (sender.tab?.id === tabId && message.type === 'PAGE_CONTENT') {
           chrome.runtime.onMessage.removeListener(listener)
           console.log('Content extracted successfully')
@@ -93,7 +94,7 @@ function extractPageContent(): void {
   })
 }
 
-async function handlePageContent(data: any): Promise<any> {
+async function handlePageContent(data: { url: string; title: string; text: string }): Promise<{ success: boolean; data: unknown }> {
   try {
     console.log('Processing page content:', {
       url: data.url,
@@ -126,20 +127,21 @@ async function handlePageContent(data: any): Promise<any> {
     })
 
     return { success: true, data: parsedResult }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Failed to process content:', error)
+    
+    const errorObj = error instanceof Error ? error : new Error('Unknown error')
+    const errorCode = (error as { code?: string })?.code || 'UNKNOWN'
     
     // エラーをPopup UIに送信
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_ERROR',
       error: {
-        code: error.code || 'UNKNOWN',
-        message: error.message || 'テキスト分析中にエラーが発生しました',
+        code: errorCode,
+        message: errorObj.message || 'テキスト分析中にエラーが発生しました',
       },
     })
 
     throw error
   }
 }
-
-export {}

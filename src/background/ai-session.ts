@@ -22,7 +22,6 @@ export class AISessionManager {
           return 'readily'
         case 'downloading':
           return 'after-download'
-        case 'unavailable':
         default:
           return 'no'
       }

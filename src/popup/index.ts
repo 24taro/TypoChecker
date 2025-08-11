@@ -1,3 +1,5 @@
+import type { TypoError, AnalysisResult } from '../shared/types/messages'
+
 class PopupUI {
   private analyzeBtn: HTMLButtonElement
   private progressContainer: HTMLElement
@@ -86,7 +88,7 @@ class PopupUI {
     this.progressText.textContent = `${current}/${total} チャンク処理中...`
   }
   
-  private displayResults(data: any): void {
+  private displayResults(data: { errors?: TypoError[]; url?: string; tokenInfo?: unknown }): void {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
     
@@ -97,9 +99,9 @@ class PopupUI {
     
     this.summarySection.classList.remove('hidden')
     
-    const typoCount = data.errors.filter((e: any) => e.type === 'typo').length
-    const grammarCount = data.errors.filter((e: any) => e.type === 'grammar').length
-    const japaneseCount = data.errors.filter((e: any) => e.type === 'japanese').length
+    const typoCount = data.errors.filter((e: TypoError) => e.type === 'typo').length
+    const grammarCount = data.errors.filter((e: TypoError) => e.type === 'grammar').length
+    const japaneseCount = data.errors.filter((e: TypoError) => e.type === 'japanese').length
     
     const typoElement = document.getElementById('typo-count')
     const grammarElement = document.getElementById('grammar-count')
@@ -113,7 +115,7 @@ class PopupUI {
     this.renderErrors(data.errors)
   }
   
-  private renderErrors(errors: any[]): void {
+  private renderErrors(errors: TypoError[]): void {
     this.errorList.innerHTML = errors
       .map(
         (error, index) => `
@@ -205,7 +207,7 @@ class PopupUI {
     this.errorList.appendChild(messageDiv)
   }
   
-  private showToast(message: string, type: string = 'success'): void {
+  private showToast(message: string, type = 'success'): void {
     const toast = document.createElement('div')
     toast.className = `toast toast-${type}`
     toast.textContent = message
@@ -255,7 +257,7 @@ class PopupUI {
     }
   }
 
-  private handleAnalysisError(error: any): void {
+  private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
     

@@ -1,6 +1,6 @@
 console.log('TypoChecker Content Script loaded on:', window.location.href)
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   console.log('Content script received message:', message)
   
   if (message.type === 'EXTRACT_CONTENT') {
@@ -44,12 +44,13 @@ function extractPageContent() {
     }
   )
   
-  let node
-  while ((node = walker.nextNode())) {
+  let node: Node | null = walker.nextNode()
+  while (node) {
     const text = node.textContent?.trim()
     if (text && text.length > 0) {
       content.visibleText.push(text)
     }
+    node = walker.nextNode()
   }
   
   document.querySelectorAll('meta[content]').forEach((meta) => {
