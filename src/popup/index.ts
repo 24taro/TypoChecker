@@ -18,6 +18,7 @@ class PopupUI {
     
     this.setupEventListeners()
     this.setupMessageListeners()
+    this.checkAIAvailability()
   }
   
   private setupEventListeners(): void {
@@ -48,6 +49,10 @@ class PopupUI {
           
         case 'ANALYSIS_COMPLETE':
           this.displayResults(message.data)
+          break
+          
+        case 'ANALYSIS_ERROR':
+          this.handleAnalysisError(message.error)
           break
           
         case 'MODEL_DOWNLOAD_PROGRESS':
@@ -218,6 +223,62 @@ class PopupUI {
   
   private exportResults(): void {
     console.log('Export results')
+  }
+
+  private async checkAIAvailability(): Promise<void> {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_AI_AVAILABILITY' })
+      
+      if (response.error) {
+        this.showError(`AI利用不可: ${response.error}`)
+        this.analyzeBtn.disabled = true
+        return
+      }
+
+      switch (response.availability) {
+        case 'no':
+          this.showError('Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+          this.analyzeBtn.disabled = true
+          break
+        
+        case 'after-download':
+          this.showMessage('AIモデルのダウンロードが必要です。初回実行時にダウンロードされます。')
+          break
+        
+        case 'readily':
+          console.log('Chrome AI API is ready')
+          break
+      }
+    } catch (error) {
+      console.error('Failed to check AI availability:', error)
+      this.showError('AI APIの確認に失敗しました')
+    }
+  }
+
+  private handleAnalysisError(error: any): void {
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    
+    let message = 'エラーが発生しました'
+    
+    switch (error.code) {
+      case 'NOT_AVAILABLE':
+        message = 'Chrome AI APIが利用できません。設定を確認してください。'
+        break
+      case 'DOWNLOAD_REQUIRED':
+        message = 'AIモデルのダウンロードが必要です。'
+        break
+      case 'SESSION_FAILED':
+        message = 'AIセッションの作成に失敗しました。'
+        break
+      case 'PROMPT_FAILED':
+        message = 'テキスト分析に失敗しました。'
+        break
+      default:
+        message = error.message || message
+    }
+    
+    this.showError(message)
   }
 }
 

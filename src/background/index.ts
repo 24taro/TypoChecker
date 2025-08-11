@@ -1,4 +1,8 @@
+import { AISessionManager } from './ai-session'
+
 console.log('TypoChecker Service Worker started')
+
+const aiSession = new AISessionManager()
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -12,6 +16,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Message received:', message)
   
   switch (message.type) {
+    case 'CHECK_AI_AVAILABILITY':
+      aiSession.checkAvailability()
+        .then((availability) => {
+          sendResponse({ availability })
+        })
+        .catch((error) => {
+          sendResponse({ error: error.message })
+        })
+      return true
+
     case 'START_ANALYSIS':
       handleStartAnalysis(message.tabId)
         .then(sendResponse)
@@ -23,8 +37,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'PAGE_CONTENT':
       console.log('Page content received from tab:', sender.tab?.id)
-      sendResponse({ success: true })
-      break
+      handlePageContent(message.data)
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Content processing failed:', error)
+          sendResponse({ error: error.message })
+        })
+      return true
       
     default:
       console.log('Unknown message type:', message.type)
@@ -72,6 +91,55 @@ function extractPageContent(): void {
     type: 'PAGE_CONTENT',
     data: content,
   })
+}
+
+async function handlePageContent(data: any): Promise<any> {
+  try {
+    console.log('Processing page content:', {
+      url: data.url,
+      textLength: data.text?.length || 0,
+    })
+
+    // AIセッションを初期化
+    await aiSession.initialize()
+
+    // テキストを分析（現時点では全体を一度に送信、Phase 2でチャンク処理を実装）
+    const analysisResult = await aiSession.analyzeText(data.text)
+    
+    // 結果をパース
+    const parsedResult = aiSession.parseAnalysisResult(analysisResult)
+
+    // トークン情報を取得
+    const tokenInfo = aiSession.getTokensInfo()
+    if (tokenInfo) {
+      console.log('Token usage:', tokenInfo)
+    }
+
+    // Popup UIに結果を送信
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_COMPLETE',
+      data: {
+        ...parsedResult,
+        url: data.url,
+        tokenInfo,
+      },
+    })
+
+    return { success: true, data: parsedResult }
+  } catch (error: any) {
+    console.error('Failed to process content:', error)
+    
+    // エラーをPopup UIに送信
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_ERROR',
+      error: {
+        code: error.code || 'UNKNOWN',
+        message: error.message || 'テキスト分析中にエラーが発生しました',
+      },
+    })
+
+    throw error
+  }
 }
 
 export {}
