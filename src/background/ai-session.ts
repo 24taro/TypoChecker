@@ -13,10 +13,12 @@ export class AISessionManager {
   async checkAvailability(): Promise<AIAvailability> {
     try {
       const provider = await StorageManager.getAIProvider()
+      console.log('Checking availability for provider:', provider)
       
       if (provider === 'gemini-api') {
         // Gemini APIを使用
         const apiKey = await StorageManager.getApiKey()
+        console.log('Gemini API selected, has API Key:', !!apiKey)
         if (apiKey) {
           console.log('Using Gemini 2.5 Flash API with API Key')
           this.useGeminiApi = true
@@ -27,24 +29,37 @@ export class AISessionManager {
         }
       } else {
         // Chrome AI APIを使用
+        console.log('Chrome AI selected, checking availability...')
         this.useGeminiApi = false
         
+        console.log('LanguageModel type:', typeof LanguageModel)
+        console.log('LanguageModel available:', typeof LanguageModel !== 'undefined')
+        
         if (typeof LanguageModel === 'undefined') {
-          console.log('Chrome AI API not available')
+          console.log('Chrome AI API not available - LanguageModel is undefined')
           return 'no'
         }
 
-        const availability = await LanguageModel.availability()
-        console.log('Chrome AI availability:', availability)
-        
-        // 新しいAPIの戻り値をマッピング
-        switch (availability) {
-          case 'available':
-            return 'readily'
-          case 'downloading':
-            return 'after-download'
-          default:
-            return 'no'
+        console.log('Checking LanguageModel.availability()...')
+        try {
+          const availability = await LanguageModel.availability()
+          console.log('Chrome AI availability result:', availability)
+          
+          // 新しいAPIの戻り値をマッピング
+          switch (availability) {
+            case 'available':
+              console.log('Chrome AI is available')
+              return 'readily'
+            case 'downloading':
+              console.log('Chrome AI is downloading')
+              return 'after-download'
+            default:
+              console.log('Chrome AI not available:', availability)
+              return 'no'
+          }
+        } catch (availabilityError) {
+          console.error('Error checking LanguageModel availability:', availabilityError)
+          return 'no'
         }
       }
     } catch (error) {
@@ -85,18 +100,42 @@ export class AISessionManager {
         console.log('Gemini API client initialized successfully')
       } else {
         // Chrome AI APIを使用
+        console.log('Initializing Chrome AI (Gemini Nano)...')
+        
         if (typeof LanguageModel === 'undefined') {
-          throw this.createError('NOT_AVAILABLE', 'LanguageModel APIが見つかりません。')
+          console.error('LanguageModel is undefined - Chrome AI API not available')
+          throw this.createError('NOT_AVAILABLE', 'LanguageModel APIが見つかりません。Chrome 138以降でフラグを有効にしてください。')
         }
 
-        console.log('Creating Chrome AI session...')
-        this.session = await LanguageModel.create({
-          systemPrompt: PROMPTS.SYSTEM,
+        console.log('LanguageModel is available, checking availability...')
+        const availability = await LanguageModel.availability()
+        console.log('Chrome AI availability check result:', availability)
+        
+        if (availability !== 'available') {
+          console.error('Chrome AI not available:', availability)
+          throw this.createError('NOT_AVAILABLE', `Chrome AIが利用できません: ${availability}`)
+        }
+
+        console.log('Creating Chrome AI session with config:', {
+          systemPrompt: PROMPTS.SYSTEM.substring(0, 100) + '...',
           temperature: 0.2,
           topK: 3,
         })
-
-        console.log('Chrome AI session created successfully')
+        
+        try {
+          this.session = await LanguageModel.create({
+            systemPrompt: PROMPTS.SYSTEM,
+            temperature: 0.2,
+            topK: 3,
+          })
+          console.log('Chrome AI session created successfully:', {
+            sessionExists: !!this.session,
+            sessionType: typeof this.session,
+          })
+        } catch (sessionError) {
+          console.error('Failed to create Chrome AI session:', sessionError)
+          throw this.createError('SESSION_FAILED', `Chrome AIセッションの作成に失敗: ${sessionError instanceof Error ? sessionError.message : 'Unknown error'}`)
+        }
       }
     } catch (error) {
       console.error('Failed to initialize AI session:', error)
@@ -107,13 +146,24 @@ export class AISessionManager {
   }
 
   async analyzeText(text: string): Promise<string> {
+    console.log('analyzeText called with text length:', text.length)
+    console.log('Current state:', {
+      hasSession: !!this.session,
+      hasGeminiClient: !!this.geminiClient,
+      useGeminiApi: this.useGeminiApi,
+      isInitializing: this.isInitializing
+    })
+    
     if (!this.session && !this.geminiClient) {
+      console.log('No session or client available, initializing...')
       await this.initialize()
     }
 
     if (this.useGeminiApi) {
       // Gemini APIを使用
+      console.log('Using Gemini API for analysis')
       if (!this.geminiClient) {
+        console.error('Gemini API client not available after initialization')
         throw this.createError('SESSION_FAILED', 'Gemini APIクライアントの作成に失敗しました。')
       }
       
@@ -125,7 +175,9 @@ export class AISessionManager {
       }
     } else {
       // Chrome AI APIを使用
+      console.log('Using Chrome AI for analysis')
       if (!this.session) {
+        console.error('Chrome AI session not available after initialization')
         throw this.createError('SESSION_FAILED', 'AIセッションの作成に失敗しました。')
       }
 
@@ -148,8 +200,8 @@ export class AISessionManager {
         
         return response
       } catch (error) {
-        console.error('Failed to analyze text:', error)
-        throw this.createError('PROMPT_FAILED', 'テキスト分析に失敗しました。')
+        console.error('Failed to analyze text with Chrome AI:', error)
+        throw this.createError('PROMPT_FAILED', `テキスト分析に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     }
   }

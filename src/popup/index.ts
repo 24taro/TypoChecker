@@ -213,7 +213,46 @@ class PopupUI {
   
   private showError(message: string): void {
     console.error(message)
-    this.showToast(message, 'error')
+    
+    // 長いメッセージの場合は詳細エラー表示
+    if (message.length > 100) {
+      this.showDetailedError(message)
+    } else {
+      this.showToast(message, 'error')
+    }
+  }
+  
+  private showDetailedError(message: string): void {
+    // 既存のエラー表示を削除
+    const existingError = document.querySelector('.detailed-error')
+    if (existingError) {
+      existingError.remove()
+    }
+    
+    // 詳細エラー表示を作成
+    const errorDiv = document.createElement('div')
+    errorDiv.className = 'detailed-error'
+    errorDiv.innerHTML = `
+      <div class="detailed-error-content">
+        <h3>エラー</h3>
+        <div class="error-message">${this.escapeHtml(message).replace(/\n/g, '<br>')}</div>
+        <button class="close-error-btn">閉じる</button>
+      </div>
+    `
+    
+    document.body.appendChild(errorDiv)
+    
+    // 閉じるボタンのイベント
+    errorDiv.querySelector('.close-error-btn')?.addEventListener('click', () => {
+      errorDiv.remove()
+    })
+    
+    // エラー領域外クリックで閉じる
+    errorDiv.addEventListener('click', (e) => {
+      if (e.target === errorDiv) {
+        errorDiv.remove()
+      }
+    })
   }
   
   private showMessage(message: string): void {
@@ -261,7 +300,15 @@ class PopupUI {
           if (provider === 'gemini-api') {
             this.showError('Gemini API Keyが設定されていません。設定ボタンからAPI Keyを入力してください。')
           } else {
-            this.showError('Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+            this.showError(`Chrome AI APIは利用できません。
+            
+必要な設定：
+1. Chrome 138以降を使用
+2. chrome://flags/#built-in-ai-api を Enabled に設定
+3. chrome://flags/#gemini-nano-api を Enabled に設定（必要に応じて）
+4. Chromeを再起動
+
+代替案：設定からGemini 2.5 Flash APIに切り替え`)
           }
           this.analyzeBtn.disabled = true
           break
