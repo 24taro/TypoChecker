@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TypoChecker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="typochecker-popup">
+    <header>
+      <h1>TypoChecker</h1>
+      <div class="status-indicator" id="status"></div>
+    </header>
+    
+    <main>
+      <section class="analyze-section">
+        <button id="analyze-btn" class="primary-btn">
+          ページをチェック
+        </button>
+        <div class="progress-container hidden" id="progress-container">
+          <div class="progress-bar" id="progress-bar"></div>
+          <span class="progress-text" id="progress-text">0/0 チャンク処理中...</span>
+        </div>
+      </section>
+      
+      <section class="summary-section hidden" id="summary-section">
+        <div class="stats">
+          <div class="stat-item">
+            <span class="stat-label">タイポ</span>
+            <span class="stat-value typo-count" id="typo-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">文法</span>
+            <span class="stat-value grammar-count" id="grammar-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">日本語</span>
+            <span class="stat-value japanese-count" id="japanese-count">0</span>
+          </div>
+        </div>
+      </section>
+      
+      <section class="errors-section hidden" id="errors-section">
+        <div class="filter-tabs">
+          <button class="tab active" data-filter="all">すべて</button>
+          <button class="tab" data-filter="typo">タイポ</button>
+          <button class="tab" data-filter="grammar">文法</button>
+          <button class="tab" data-filter="japanese">日本語</button>
+        </div>
+        
+        <div class="error-list" id="error-list">
+        </div>
+      </section>
+      
+      <div class="error-detail-modal hidden" id="error-modal">
+        <div class="modal-content">
+          <h3>エラー詳細</h3>
+          <div class="error-context" id="error-context"></div>
+          <div class="suggestion-box">
+            <button class="copy-btn" id="copy-suggestion">修正案をコピー</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer>
+      <button class="export-btn" id="export-btn">結果をエクスポート</button>
+      <button class="settings-btn" id="settings-btn">設定</button>
+    </footer>
+  </div>
+  
+  <script type="module" src="index.ts"></script>
+</body>
+</html>

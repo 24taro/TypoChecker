@@ -1,0 +1,21 @@
+{
+  "name": "typochecker",
+  "version": "1.0.0",
+  "description": "Chrome extension for detecting typos and grammar errors using Chrome's built-in AI",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "format": "biome format --write ./src",
+    "lint": "biome lint ./src"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.8.3",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.5"
+  },
+  "author": "",
+  "license": "MIT"
+}
