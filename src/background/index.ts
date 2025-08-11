@@ -1,5 +1,4 @@
 import { AISessionManager } from './ai-session'
-import { ChunkProcessor } from './chunk-processor'
 import type { PageContentMessage, Message } from '../shared/types/messages'
 
 console.log('TypoChecker Service Worker started')
@@ -105,32 +104,20 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // ChunkProcessorを使用してテキストを処理
-    const chunkProcessor = new ChunkProcessor()
+    // シンプルな処理：テキストが長すぎる場合は最初の部分だけを処理
+    const MAX_TEXT_LENGTH = 20000 // 約5000トークン
+    const textToAnalyze = data.text.length > MAX_TEXT_LENGTH 
+      ? data.text.substring(0, MAX_TEXT_LENGTH) 
+      : data.text
     
-    // テキストをチャンクに分割
-    const chunks = chunkProcessor.splitIntoChunks(data.text)
-    console.log(`Split text into ${chunks.length} chunks`)
-
-    // チャンクを処理（進捗報告付き）
-    const chunkResults = await chunkProcessor.processChunks(
-      chunks,
-      (text) => aiSession.analyzeText(text),
-      (current, total) => {
-        // 進捗をPopup UIに送信
-        chrome.runtime.sendMessage({
-          type: 'PROGRESS_UPDATE',
-          data: {
-            current,
-            total,
-            phase: 'analyzing' as const,
-          },
-        })
-      }
-    )
-
-    // 結果をマージ
-    const allErrors = chunkProcessor.mergeResults(chunkResults)
+    console.log(`Analyzing text (length: ${textToAnalyze.length})`)
+    
+    // AIで直接分析（チャンク分割なし）
+    const analysisResult = await aiSession.analyzeText(textToAnalyze)
+    
+    // 結果をパース
+    const parsedResult = aiSession.parseAnalysisResult(analysisResult)
+    const allErrors = parsedResult.errors || []
     
     // 統計情報を計算
     const stats = {

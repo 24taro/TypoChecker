@@ -48,15 +48,15 @@ ${text}
 
 // Chunk Processing Constants
 export const CHUNK_PROCESSING = {
-  BATCH_SIZE: 3, // 同時処理するチャンク数
-  RETRY_ATTEMPTS: 2, // リトライ回数
-  RETRY_DELAY: 1000, // リトライ待機時間（ミリ秒）
-  TIMEOUT: 30000, // タイムアウト時間（ミリ秒）
+  BATCH_SIZE: 1, // 同時処理するチャンク数を1に削減（順次処理）
+  RETRY_ATTEMPTS: 1, // リトライ回数を削減
+  RETRY_DELAY: 2000, // リトライ待機時間を延長
+  TIMEOUT: 120000, // タイムアウト時間を2分に延長
 } as const
 
 // Test Mode
 export const TEST_MODE = {
-  ENABLED: true, // テストモードの有効/無効
+  ENABLED: false, // テストモードの有効/無効 - false で実際のGemini Nanoを使用
   DELAY_MS: 1000, // ダミー処理の遅延時間
 } as const
 

@@ -102,11 +102,9 @@ export class AISessionManager {
       // 遅延を追加してリアルな処理をシミュレート
       await new Promise(resolve => setTimeout(resolve, TEST_MODE.DELAY_MS))
       
-      // テキストの長さに応じてランダムにエラーを選択
-      const numErrors = Math.min(3, Math.floor(Math.random() * DUMMY_ERRORS.length) + 1)
+      // テストモードでは常にすべてのダミーエラーを表示（デバッグ用）
+      // 本番では適切な数に調整することを推奨
       const selectedErrors = [...DUMMY_ERRORS]
-        .sort(() => Math.random() - 0.5)
-        .slice(0, numErrors)
       
       // JSON形式で返す
       return JSON.stringify({ errors: selectedErrors })
@@ -114,7 +112,21 @@ export class AISessionManager {
 
     try {
       const prompt = PROMPTS.USER_TEMPLATE(text)
+      
+      // 送信するプロンプトをログ出力
+      console.log('=== AI PROMPT START ===')
+      console.log('📤 Sending prompt to Gemini Nano:')
+      console.log(prompt)
+      console.log('=== AI PROMPT END ===')
+      
       const response = await this.session.prompt(prompt)
+      
+      // AIからのレスポンスをログ出力
+      console.log('=== AI RESPONSE START ===')
+      console.log('📥 Response from Gemini Nano:')
+      console.log(response)
+      console.log('=== AI RESPONSE END ===')
+      
       return response
     } catch (error) {
       console.error('Failed to analyze text:', error)
@@ -123,6 +135,9 @@ export class AISessionManager {
   }
 
   parseAnalysisResult(response: string): Partial<AIAnalysisResult> {
+    console.log('=== PARSING ANALYSIS RESULT ===')
+    console.log('📋 Raw response to parse:', response)
+    
     try {
       const jsonMatch = response.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
@@ -130,12 +145,15 @@ export class AISessionManager {
         return { errors: [] }
       }
 
+      console.log('🔍 Found JSON:', jsonMatch[0])
       const parsed = JSON.parse(jsonMatch[0])
+      console.log('✅ Parsed result:', parsed)
+      
       return {
         errors: parsed.errors || [],
       }
     } catch (error) {
-      console.error('Failed to parse AI response:', error)
+      console.error('❌ Failed to parse AI response:', error)
       return { errors: [] }
     }
   }
