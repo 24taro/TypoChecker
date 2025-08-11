@@ -138,21 +138,20 @@ export class AISessionManager {
         }
         
         // コードブロック内のJSONを探す
-        const codeBlockMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/g)
-        if (codeBlockMatch) {
-          for (const block of codeBlockMatch) {
-            const jsonContent = block.replace(/```(?:json)?\s*/, '').replace(/\s*```$/, '')
-            try {
-              const parsed = JSON.parse(jsonContent)
-              if (parsed.errors !== undefined) {
-                console.log('Successfully extracted JSON from code block')
-                return {
-                  errors: parsed.errors || [],
-                }
+        const codeBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/g
+        let match
+        while ((match = codeBlockRegex.exec(response)) !== null) {
+          const jsonContent = match[1] // キャプチャグループから直接取得
+          try {
+            const parsed = JSON.parse(jsonContent)
+            if (parsed.errors !== undefined) {
+              console.log('Successfully extracted JSON from code block')
+              return {
+                errors: parsed.errors || [],
               }
-            } catch {
-              continue
             }
+          } catch {
+            continue
           }
         }
         
