@@ -54,6 +54,51 @@ export const CHUNK_PROCESSING = {
   TIMEOUT: 30000, // タイムアウト時間（ミリ秒）
 } as const
 
+// Test Mode
+export const TEST_MODE = {
+  ENABLED: true, // テストモードの有効/無効
+  DELAY_MS: 1000, // ダミー処理の遅延時間
+} as const
+
+// Dummy Test Data
+export const DUMMY_ERRORS = [
+  {
+    type: 'typo' as const,
+    severity: 'error' as const,
+    original: 'これわ間違った文章です',
+    suggestion: 'これは間違った文章です',
+    explanation: '助詞「は」が「わ」になっています',
+  },
+  {
+    type: 'grammar' as const,
+    severity: 'warning' as const,
+    original: '昨日は学校に行きませんでしたでした',
+    suggestion: '昨日は学校に行きませんでした',
+    explanation: '「でした」が重複しています',
+  },
+  {
+    type: 'japanese' as const,
+    severity: 'info' as const,
+    original: '私は食べるをしました',
+    suggestion: '私は食事をしました',
+    explanation: '日本語として不自然な表現です',
+  },
+  {
+    type: 'typo' as const,
+    severity: 'error' as const,
+    original: 'プログラミングを勉強してまいす',
+    suggestion: 'プログラミングを勉強しています',
+    explanation: '「います」が「まいす」になっています',
+  },
+  {
+    type: 'grammar' as const,
+    severity: 'warning' as const,
+    original: '明日は会議がありますですので',
+    suggestion: '明日は会議がありますので',
+    explanation: '「ます」と「です」が重複しています',
+  },
+]
+
 // Error Messages
 export const ERROR_MESSAGES = {
   NO_CONTENT: 'ページにテキストコンテンツが見つかりません',

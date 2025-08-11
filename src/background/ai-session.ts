@@ -1,12 +1,18 @@
 /// <reference path="../shared/types/chrome-ai.d.ts" />
 import type { AIAvailability, AIError, AIAnalysisResult } from '../shared/types/chrome-ai'
-import { PROMPTS } from '../shared/constants'
+import { PROMPTS, TEST_MODE, DUMMY_ERRORS } from '../shared/constants'
 
 export class AISessionManager {
   private session: LanguageModelSession | null = null
   private isInitializing = false
 
   async checkAvailability(): Promise<AIAvailability> {
+    // テストモードの場合は常に利用可能を返す
+    if (TEST_MODE.ENABLED) {
+      console.log('🧪 Test mode enabled - returning mock availability')
+      return 'readily'
+    }
+
     try {
       // Chrome 138+ では LanguageModel がグローバルで利用可能
       if (typeof LanguageModel === 'undefined') {
@@ -41,6 +47,15 @@ export class AISessionManager {
     this.isInitializing = true
 
     try {
+      // テストモードの場合はダミーセッションを作成
+      if (TEST_MODE.ENABLED) {
+        console.log('🧪 Test mode - creating mock session')
+        // ダミーセッションとしてオブジェクトを設定
+        this.session = {} as LanguageModelSession
+        this.isInitializing = false
+        return
+      }
+
       const availability = await this.checkAvailability()
       
       if (availability === 'no') {
@@ -78,6 +93,23 @@ export class AISessionManager {
 
     if (!this.session) {
       throw this.createError('SESSION_FAILED', 'AIセッションの作成に失敗しました。')
+    }
+
+    // テストモードの場合はダミーエラーを返す
+    if (TEST_MODE.ENABLED) {
+      console.log('🧪 Test mode - returning mock errors for text:', text.substring(0, 50) + '...')
+      
+      // 遅延を追加してリアルな処理をシミュレート
+      await new Promise(resolve => setTimeout(resolve, TEST_MODE.DELAY_MS))
+      
+      // テキストの長さに応じてランダムにエラーを選択
+      const numErrors = Math.min(3, Math.floor(Math.random() * DUMMY_ERRORS.length) + 1)
+      const selectedErrors = [...DUMMY_ERRORS]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, numErrors)
+      
+      // JSON形式で返す
+      return JSON.stringify({ errors: selectedErrors })
     }
 
     try {
