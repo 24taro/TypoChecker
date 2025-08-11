@@ -311,3 +311,105 @@ footer {
   color: #666;
   font-size: 14px;
 }
+
+/* Settings Section */
+.settings-section {
+  padding: 16px;
+}
+
+.settings-section h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1f2937;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-item label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.api-key-group {
+  display: flex;
+  gap: 8px;
+}
+
+.api-key-group input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.api-key-group button {
+  padding: 8px 16px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.api-key-group button:hover {
+  background-color: #2563eb;
+}
+
+.help-text {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.help-text a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
+}
+
+#ai-provider-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: white;
+  cursor: pointer;
+}
+
+.gemini-api-settings {
+  padding-left: 12px;
+  border-left: 2px solid #e5e7eb;
+}
+
+.danger-btn {
+  padding: 8px 16px;
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.danger-btn:hover {
+  background-color: #dc2626;
+}
