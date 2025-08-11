@@ -2,21 +2,30 @@
 import type { AIAvailability, AIError, AIAnalysisResult } from '../shared/types/chrome-ai'
 
 export class AISessionManager {
-  private session: chrome.ai.LanguageModelSession | null = null
+  private session: LanguageModelSession | null = null
   private isInitializing = false
 
   async checkAvailability(): Promise<AIAvailability> {
     try {
-      // Service Workerコンテキストでのアクセス
-      const globalSelf = self as any
-      if (!('ai' in globalSelf) || !globalSelf.ai?.languageModel) {
-        console.log('Chrome AI API not available')
+      // Chrome 138+ では LanguageModel がグローバルで利用可能
+      if (typeof LanguageModel === 'undefined') {
+        console.log('LanguageModel API not available')
         return 'no'
       }
 
-      const capabilities = await globalSelf.ai.languageModel.capabilities()
-      console.log('AI capabilities:', capabilities)
-      return capabilities.available
+      const availability = await LanguageModel.availability()
+      console.log('AI availability:', availability)
+      
+      // 新しいAPIの戻り値をマッピング
+      switch (availability) {
+        case 'available':
+          return 'readily'
+        case 'downloading':
+          return 'after-download'
+        case 'unavailable':
+        default:
+          return 'no'
+      }
     } catch (error) {
       console.error('Failed to check AI availability:', error)
       return 'no'
@@ -42,13 +51,12 @@ export class AISessionManager {
         throw this.createError('DOWNLOAD_REQUIRED', 'AIモデルのダウンロードが必要です。')
       }
 
-      const globalSelf = self as any
-      if (!globalSelf.ai?.languageModel) {
-        throw this.createError('NOT_AVAILABLE', 'Chrome AI APIが見つかりません。')
+      if (typeof LanguageModel === 'undefined') {
+        throw this.createError('NOT_AVAILABLE', 'LanguageModel APIが見つかりません。')
       }
 
       console.log('Creating AI session...')
-      this.session = await globalSelf.ai.languageModel.create({
+      this.session = await LanguageModel.create({
         systemPrompt: `あなたは日本語の文章校正アシスタントです。
 与えられたテキストから以下を検出してください：
 1. タイポ（誤字）
