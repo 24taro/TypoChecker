@@ -262,8 +262,9 @@ class PopupUI {
     this.analyzeBtn.disabled = false
     
     let message = 'エラーが発生しました'
+    const errorCode = error instanceof Error ? undefined : error.code
     
-    switch (error.code) {
+    switch (errorCode) {
       case 'NOT_AVAILABLE':
         message = 'Chrome AI APIが利用できません。設定を確認してください。'
         break

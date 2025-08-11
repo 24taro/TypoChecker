@@ -1,4 +1,5 @@
 import { AISessionManager } from './ai-session'
+import { ChunkProcessor } from './chunk-processor'
 import type { PageContentMessage, Message } from '../shared/types/messages'
 
 console.log('TypoChecker Service Worker started')
@@ -104,11 +105,40 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // テキストを分析（現時点では全体を一度に送信、Phase 2でチャンク処理を実装）
-    const analysisResult = await aiSession.analyzeText(data.text)
+    // ChunkProcessorを使用してテキストを処理
+    const chunkProcessor = new ChunkProcessor()
     
-    // 結果をパース
-    const parsedResult = aiSession.parseAnalysisResult(analysisResult)
+    // テキストをチャンクに分割
+    const chunks = chunkProcessor.splitIntoChunks(data.text)
+    console.log(`Split text into ${chunks.length} chunks`)
+
+    // チャンクを処理（進捗報告付き）
+    const chunkResults = await chunkProcessor.processChunks(
+      chunks,
+      (text) => aiSession.analyzeText(text),
+      (current, total) => {
+        // 進捗をPopup UIに送信
+        chrome.runtime.sendMessage({
+          type: 'PROGRESS_UPDATE',
+          data: {
+            current,
+            total,
+            phase: 'analyzing' as const,
+          },
+        })
+      }
+    )
+
+    // 結果をマージ
+    const allErrors = chunkProcessor.mergeResults(chunkResults)
+    
+    // 統計情報を計算
+    const stats = {
+      totalErrors: allErrors.length,
+      typoCount: allErrors.filter(e => e.type === 'typo').length,
+      grammarCount: allErrors.filter(e => e.type === 'grammar').length,
+      japaneseCount: allErrors.filter(e => e.type === 'japanese').length,
+    }
 
     // トークン情報を取得
     const tokenInfo = aiSession.getTokensInfo()
@@ -120,13 +150,14 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_COMPLETE',
       data: {
-        ...parsedResult,
+        errors: allErrors,
+        stats,
         url: data.url,
         tokenInfo,
       },
     })
 
-    return { success: true, data: parsedResult }
+    return { success: true, data: { errors: allErrors, stats } }
   } catch (error) {
     console.error('Failed to process content:', error)
     

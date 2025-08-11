@@ -1,5 +1,6 @@
 /// <reference path="../shared/types/chrome-ai.d.ts" />
 import type { AIAvailability, AIError, AIAnalysisResult } from '../shared/types/chrome-ai'
+import { PROMPTS } from '../shared/constants'
 
 export class AISessionManager {
   private session: LanguageModelSession | null = null
@@ -56,27 +57,7 @@ export class AISessionManager {
 
       console.log('Creating AI session...')
       this.session = await LanguageModel.create({
-        systemPrompt: `あなたは日本語の文章校正アシスタントです。
-与えられたテキストから以下を検出してください：
-1. タイポ（誤字）
-2. 文法エラー
-3. 日本語として不自然な表現
-
-結果は以下のJSON形式で返してください：
-{
-  "errors": [
-    {
-      "type": "typo" | "grammar" | "japanese",
-      "severity": "error" | "warning" | "info",
-      "original": "元のテキスト",
-      "suggestion": "修正案",
-      "context": "周辺のテキスト（オプション）"
-    }
-  ]
-}
-
-エラーが見つからない場合は空の配列を返してください。
-必ず有効なJSONを返してください。`,
+        systemPrompt: PROMPTS.SYSTEM,
         temperature: 0.2,
         topK: 3,
       })
@@ -100,7 +81,7 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを分析してエラーを検出してください：\n\n${text}`
+      const prompt = PROMPTS.USER_TEMPLATE(text)
       const response = await this.session.prompt(prompt)
       return response
     } catch (error) {
