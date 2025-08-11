@@ -108,6 +108,7 @@ export class AISessionManager {
     try {
       // まず直接JSONパースを試みる
       const parsed = JSON.parse(response)
+      console.log('Successfully parsed JSON directly')
       return {
         errors: parsed.errors || [],
       }
