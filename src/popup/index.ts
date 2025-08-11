@@ -1,3 +1,5 @@
+import type { TypoError, AnalysisResult } from '../shared/types/messages'
+
 class PopupUI {
   private analyzeBtn: HTMLButtonElement
   private progressContainer: HTMLElement
@@ -18,6 +20,7 @@ class PopupUI {
     
     this.setupEventListeners()
     this.setupMessageListeners()
+    this.checkAIAvailability()
   }
   
   private setupEventListeners(): void {
@@ -48,6 +51,10 @@ class PopupUI {
           
         case 'ANALYSIS_COMPLETE':
           this.displayResults(message.data)
+          break
+          
+        case 'ANALYSIS_ERROR':
+          this.handleAnalysisError(message.error)
           break
           
         case 'MODEL_DOWNLOAD_PROGRESS':
@@ -81,7 +88,7 @@ class PopupUI {
     this.progressText.textContent = `${current}/${total} チャンク処理中...`
   }
   
-  private displayResults(data: any): void {
+  private displayResults(data: { errors?: TypoError[]; url?: string; tokenInfo?: unknown }): void {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
     
@@ -92,9 +99,9 @@ class PopupUI {
     
     this.summarySection.classList.remove('hidden')
     
-    const typoCount = data.errors.filter((e: any) => e.type === 'typo').length
-    const grammarCount = data.errors.filter((e: any) => e.type === 'grammar').length
-    const japaneseCount = data.errors.filter((e: any) => e.type === 'japanese').length
+    const typoCount = data.errors.filter((e: TypoError) => e.type === 'typo').length
+    const grammarCount = data.errors.filter((e: TypoError) => e.type === 'grammar').length
+    const japaneseCount = data.errors.filter((e: TypoError) => e.type === 'japanese').length
     
     const typoElement = document.getElementById('typo-count')
     const grammarElement = document.getElementById('grammar-count')
@@ -108,7 +115,7 @@ class PopupUI {
     this.renderErrors(data.errors)
   }
   
-  private renderErrors(errors: any[]): void {
+  private renderErrors(errors: TypoError[]): void {
     this.errorList.innerHTML = errors
       .map(
         (error, index) => `
@@ -200,7 +207,7 @@ class PopupUI {
     this.errorList.appendChild(messageDiv)
   }
   
-  private showToast(message: string, type: string = 'success'): void {
+  private showToast(message: string, type = 'success'): void {
     const toast = document.createElement('div')
     toast.className = `toast toast-${type}`
     toast.textContent = message
@@ -218,6 +225,62 @@ class PopupUI {
   
   private exportResults(): void {
     console.log('Export results')
+  }
+
+  private async checkAIAvailability(): Promise<void> {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_AI_AVAILABILITY' })
+      
+      if (response.error) {
+        this.showError(`AI利用不可: ${response.error}`)
+        this.analyzeBtn.disabled = true
+        return
+      }
+
+      switch (response.availability) {
+        case 'no':
+          this.showError('Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+          this.analyzeBtn.disabled = true
+          break
+        
+        case 'after-download':
+          this.showMessage('AIモデルのダウンロードが必要です。初回実行時にダウンロードされます。')
+          break
+        
+        case 'readily':
+          console.log('Chrome AI API is ready')
+          break
+      }
+    } catch (error) {
+      console.error('Failed to check AI availability:', error)
+      this.showError('AI APIの確認に失敗しました')
+    }
+  }
+
+  private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    
+    let message = 'エラーが発生しました'
+    
+    switch (error.code) {
+      case 'NOT_AVAILABLE':
+        message = 'Chrome AI APIが利用できません。設定を確認してください。'
+        break
+      case 'DOWNLOAD_REQUIRED':
+        message = 'AIモデルのダウンロードが必要です。'
+        break
+      case 'SESSION_FAILED':
+        message = 'AIセッションの作成に失敗しました。'
+        break
+      case 'PROMPT_FAILED':
+        message = 'テキスト分析に失敗しました。'
+        break
+      default:
+        message = error.message || message
+    }
+    
+    this.showError(message)
   }
 }
 
