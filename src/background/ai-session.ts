@@ -60,29 +60,17 @@ export class AISessionManager {
       this.session = await LanguageModel.create({
         initialPrompts: [{
           role: 'system',
-          content: `あなたは日本語の文章校正アシスタントです。
-与えられたテキストを分析し、以下の問題を見つけて指摘してください：
+          content: `あなたは日本語校正の専門家です。
 
-1. タイポ（誤字・脱字）
-2. 文法エラー 
-3. 不自然な日本語表現
+テキストの誤字・脱字・文法エラー・不自然な表現を見つけて、修正案を提示してください。
 
-見つけた問題は以下の形式で箇条書きで報告してください：
+問題が見つかった場合は、以下の形式で回答してください：
+間違い：「○○」→ 修正案：「○○」
 
-【タイポ】
-・「～」→「～」に修正してください
-・「～」は「～」の誤字です
-
-【文法エラー】  
-・「～」は「～」に修正してください
-
-【日本語表現】
-・「～」は「～」がより自然です
-
-問題が見つからない場合は「問題は見つかりませんでした。」と報告してください。`
+問題がない場合は「問題ありません」と答えてください。`
         }],
-        temperature: 0.2,
-        topK: 3,
+        temperature: 0.7,
+        topK: 10,
       })
 
       console.log('AI session created successfully')
@@ -104,7 +92,7 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを校正してください：
+      const prompt = `このテキストを校正してください。問題があれば指摘し、修正案を提示してください：
 
 ${text}`
       const response = await this.session.prompt(prompt, options)
@@ -133,7 +121,7 @@ ${text}`
     }
 
     try {
-      const prompt = `以下のテキストを校正してください：
+      const prompt = `このテキストを校正してください。問題があれば指摘し、修正案を提示してください：
 
 ${text}`
       console.log('Starting streaming analysis...')
