@@ -322,18 +322,11 @@ class PopupUI {
     this.errorsSection.classList.remove('hidden')
   }
 
-  private handleStreamingChunk(data: { chunk: string; partialErrors?: any[]; progress?: number }): void {
-    console.log('Streaming chunk received:', data)
-    
+  private handleStreamingChunk(data: { chunk: string; progress?: number }): void {
     // プログレスバー更新
     if (data.progress) {
       this.progressBar.style.width = `${data.progress}%`
-      this.progressText.textContent = `分析中... ${data.progress}%`
-    }
-    
-    // 新しいエラーがあれば追加表示
-    if (data.partialErrors && data.partialErrors.length > 0) {
-      this.appendStreamingErrors(data.partialErrors)
+      this.progressText.textContent = `AI分析中... ${data.progress}%`
     }
   }
 
@@ -358,28 +351,6 @@ class PopupUI {
     this.showError(`${data.message}: ${data.error}`)
   }
 
-  private appendStreamingErrors(errors: any[]): void {
-    errors.forEach((error, index) => {
-      // 重複チェック
-      const existingErrors = this.errorList.querySelectorAll('.error-item')
-      const isDuplicate = Array.from(existingErrors).some(el => {
-        const suggestion = el.querySelector('.error-suggestion')?.textContent
-        return suggestion?.includes(error.suggestion || '')
-      })
-      
-      if (!isDuplicate) {
-        const errorElement = this.createErrorElement(error, Date.now() + index)
-        this.errorList.appendChild(errorElement)
-        
-        // アニメーション効果
-        errorElement.style.opacity = '0'
-        setTimeout(() => {
-          errorElement.style.opacity = '1'
-          errorElement.style.transition = 'opacity 0.3s ease-in'
-        }, 50)
-      }
-    })
-  }
 
   private createErrorElement(error: any, index: number): HTMLElement {
     const errorDiv = document.createElement('div')

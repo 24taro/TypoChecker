@@ -146,46 +146,28 @@ export class AISessionManager {
         const newText = chunk.slice(previousText.length)
         const isComplete = this.isResponseComplete(chunk)
         
-        console.log(`📡 AI Session chunk ${chunkCount}:`, {
-          cumulativeLength: chunk.length,
-          newTextLength: newText.length,
-          newText: newText.substring(0, 50) + (newText.length > 50 ? '...' : ''),
-          fullChunk: chunk.substring(0, 200) + (chunk.length > 200 ? '...' : ''),
-          isComplete
-        })
-        
-        // 部分的なエラーを解析
-        const partialErrors = this.tryParsePartialErrors(chunk)
-        console.log(`🔍 Partial error parsing result:`, {
-          errorsFound: partialErrors.length,
-          errors: partialErrors
-        })
-        
-        // 進捗計算（完了かどうかで判定）
+        // 進捗計算
         const progress = isComplete ? 100 : Math.min(10 + chunkCount * 5, 90)
         
-        const chunkData = {
-          chunk: newText,
-          partialErrors,
-          progress
-        }
-
         // コールバックで通知
         if (onChunk) {
-          onChunk(chunkData)
+          onChunk({
+            chunk: newText,
+            partialErrors: [],
+            progress
+          })
         }
 
         // ジェネレータで yield
         yield {
           chunk: newText,
-          partialErrors,
+          partialErrors: [],
           isComplete
         }
 
         previousText = chunk
 
         if (isComplete) {
-          console.log('✅ AI Streaming analysis completed')
           break
         }
       }
@@ -301,84 +283,16 @@ export class AISessionManager {
   }
 
   private isResponseComplete(text: string): boolean {
-    // JSONの完了を確認（閉じ括弧があり、構造が完整している）
     const openBraces = (text.match(/\{/g) || []).length
     const closeBraces = (text.match(/\}/g) || []).length
     const openBrackets = (text.match(/\[/g) || []).length
     const closeBrackets = (text.match(/\]/g) || []).length
     
-    const hasErrors = text.includes('"errors"')
-    const endsWithBrace = text.trim().endsWith('}')
-    const isComplete = openBraces > 0 && closeBraces > 0 && 
-                      openBraces === closeBraces && openBrackets === closeBrackets && 
-                      hasErrors && endsWithBrace
-    
-    console.log('🏁 Completion check:', {
-      openBraces, closeBraces, openBrackets, closeBrackets,
-      hasErrors, endsWithBrace, isComplete,
-      textEnd: text.slice(-20)
-    })
-    
-    return isComplete
+    return openBraces > 0 && closeBraces > 0 && 
+           openBraces === closeBraces && openBrackets === closeBrackets && 
+           text.includes('"errors"') && text.trim().endsWith('}')
   }
 
-  private tryParsePartialErrors(text: string): any[] {
-    const errors: any[] = []
-    console.log('🔍 Trying to parse partial errors from text:', text.substring(0, 150) + '...')
-    
-    try {
-      // 完全なJSONとして解析を試行
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        console.log('💡 Found JSON match, attempting to parse:', jsonMatch[0].substring(0, 100) + '...')
-        const parsed = JSON.parse(jsonMatch[0])
-        if (parsed.errors && Array.isArray(parsed.errors)) {
-          console.log('✅ Successfully parsed complete JSON with errors:', parsed.errors.length)
-          return parsed.errors
-        }
-      }
-    } catch (e) {
-      console.log('❌ Complete JSON parsing failed:', e instanceof Error ? e.message : 'Unknown error')
-    }
-
-    // 部分的なエラー要素を正規表現で抽出
-    const errorPattern = /\{\s*"type":\s*"(typo|grammar|japanese)",\s*"severity":\s*"(error|warning|info)",\s*"original":\s*"([^"]*)",\s*"suggestion":\s*"([^"]*)"\s*(?:,\s*"(?:context|explanation)":\s*"[^"]*")?\s*\}/g
-    
-    let match
-    let regexMatches = 0
-    while ((match = errorPattern.exec(text)) !== null) {
-      regexMatches++
-      try {
-        const errorObj = JSON.parse(match[0])
-        console.log(`📋 Regex match ${regexMatches} parsed:`, errorObj)
-        errors.push(errorObj)
-      } catch {
-        console.log(`❌ Regex match ${regexMatches} failed to parse:`, match[0])
-        continue
-      }
-    }
-
-    // より簡単なパターンでも試行
-    if (errors.length === 0) {
-      console.log('🔍 Trying simple pattern extraction...')
-      const simplePattern = /"type":\s*"(typo|grammar|japanese)"[^}]*?"suggestion":\s*"([^"]*)"/g
-      let simpleMatches = 0
-      while ((match = simplePattern.exec(text)) !== null) {
-        simpleMatches++
-        const simpleError = {
-          type: match[1],
-          severity: 'warning',
-          original: '',
-          suggestion: match[2]
-        }
-        console.log(`📌 Simple pattern match ${simpleMatches}:`, simpleError)
-        errors.push(simpleError)
-      }
-    }
-
-    console.log(`🎯 Final partial error count: ${errors.length}`)
-    return errors
-  }
 
   private createError(code: AIError['code'], message: string): AIError {
     return { code, message }

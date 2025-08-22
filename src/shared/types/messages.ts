@@ -116,7 +116,6 @@ export interface AnalysisStreamChunkMessage {
   type: 'ANALYSIS_STREAM_CHUNK'
   data: {
     chunk: string
-    partialErrors?: TypoError[]
     progress?: number
   }
 }

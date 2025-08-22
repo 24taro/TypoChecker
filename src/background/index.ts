@@ -231,54 +231,34 @@ async function processStreamingAnalysis(
     }
 
     // ストリーミング解析を実行
+    let fullResponse = ''
     let chunkCount = 0
     for await (const streamData of aiSession.analyzeTextStreaming(
       data.text,
       undefined, // コールバックは使わずに、for awaitで処理
     )) {
       chunkCount++
-      console.log(`🔄 Stream chunk ${chunkCount}:`, {
-        chunkLength: streamData.chunk.length,
-        chunk: streamData.chunk.substring(0, 100) + (streamData.chunk.length > 100 ? '...' : ''),
-        partialErrorsCount: streamData.partialErrors.length,
-        partialErrors: streamData.partialErrors,
-        isComplete: streamData.isComplete
-      })
-      
-      // 新しいエラーをすべてのエラーリストに追加
-      if (streamData.partialErrors.length > 0) {
-        // 重複チェック（既に追加されたエラーを避ける）
-        const newErrors = streamData.partialErrors.filter(error => 
-          !allErrors.some(existing => 
-            existing.type === error.type && 
-            existing.original === error.original && 
-            existing.suggestion === error.suggestion
-          )
-        )
-        
-        if (newErrors.length > 0) {
-          console.log(`✨ New errors found:`, newErrors)
-          allErrors.push(...newErrors)
-        }
-      }
+      fullResponse += streamData.chunk
 
-      // チャンクデータをPopupに送信
+      // 進捗をPopupに送信
       if (sender.tab?.id) {
         chrome.tabs.sendMessage(sender.tab.id, {
           type: 'ANALYSIS_STREAM_CHUNK',
           data: {
             chunk: streamData.chunk,
-            partialErrors: streamData.partialErrors,
-            progress: streamData.isComplete ? 100 : Math.min(allErrors.length * 10, 90)
+            progress: streamData.isComplete ? 100 : Math.min(chunkCount * 10, 90)
           }
         })
       }
 
       if (streamData.isComplete) {
-        console.log(`✅ Streaming completed after ${chunkCount} chunks`)
         break
       }
     }
+
+    // 最終結果を解析
+    const parsedResult = aiSession.parseAnalysisResult(fullResponse)
+    allErrors.push(...(parsedResult.errors || []))
 
     // 最終結果の統計を計算
     const stats = {
