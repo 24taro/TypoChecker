@@ -51,7 +51,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'START_ANALYSIS':
       console.log('Analysis requested for tab:', message.tabId)
-      handleAnalysis(message.tabId, sender)
+      handleAnalysis(message.tabId, message.userPrompt, sender)
         .then(() => {
           sendResponse({ success: true })
         })
@@ -119,8 +119,8 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // テキストを分析
-    const analysisResult = await aiSession.analyzeText(data.text)
+    // テキストを分析（デフォルトプロンプト）
+    const analysisResult = await aiSession.analyzeText('このページの内容を分析してください', data.text)
 
     // トークン情報を取得
     const tokenInfo = aiSession.getTokensInfo()
@@ -158,18 +158,18 @@ async function handlePageContent(data: { url: string; title: string; text: strin
   }
 }
 
-async function handleAnalysis(tabId: number, sender: chrome.runtime.MessageSender): Promise<void> {
+async function handleAnalysis(tabId: number, userPrompt: string, sender: chrome.runtime.MessageSender): Promise<void> {
   try {
     console.log('Starting analysis for tab:', tabId)
     
-    // ページコンテンツを直接抽出（メッセージ競合を回避）
+    // ページのHTML全体を抽出
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
         return {
           url: window.location.href,
           title: document.title,
-          text: document.body.innerText,
+          html: document.documentElement.outerHTML,
         }
       },
     })
@@ -179,13 +179,13 @@ async function handleAnalysis(tabId: number, sender: chrome.runtime.MessageSende
     }
     
     const pageData = results[0].result
-    console.log('Page content extracted directly:', {
+    console.log('Page HTML extracted directly:', {
       url: pageData.url,
-      textLength: pageData.text?.length || 0,
+      htmlLength: pageData.html?.length || 0,
     })
     
-    // 通常解析を開始
-    await processAnalysis(pageData, sender)
+    // AI処理を開始
+    await processAnalysis(pageData, userPrompt, sender)
     
   } catch (error) {
     console.error('Failed to start analysis:', error)
@@ -194,13 +194,14 @@ async function handleAnalysis(tabId: number, sender: chrome.runtime.MessageSende
 }
 
 async function processAnalysis(
-  data: { url: string; title: string; text: string },
+  data: { url: string; title: string; html: string },
+  userPrompt: string,
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
   try {
     console.log('Processing analysis for:', {
       url: data.url,
-      textLength: data.text?.length || 0,
+      htmlLength: data.html?.length || 0,
     })
 
     // AIセッションを初期化
@@ -210,12 +211,12 @@ async function processAnalysis(
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_START',
       data: {
-        message: 'AI分析を実行中...'
+        message: 'AI処理を実行中...'
       }
     })
 
-    // 通常の分析を実行
-    const analysisResult = await aiSession.analyzeText(data.text)
+    // AI処理を実行
+    const analysisResult = await aiSession.analyzeText(userPrompt, data.html)
 
     // 分析完了を通知
     chrome.runtime.sendMessage({
@@ -226,16 +227,26 @@ async function processAnalysis(
     })
 
     console.log('Analysis completed:', {
-      textLength: analysisResult.length
+      resultLength: analysisResult.length
     })
 
   } catch (error) {
     console.error('Analysis error:', error)
     
+    let errorMessage = '処理中にエラーが発生しました'
+    
+    if (error instanceof Error) {
+      if (error.message.includes('too large') || error.message.includes('QuotaExceededError') || error.name === 'QuotaExceededError') {
+        errorMessage = 'ページのHTMLが大きすぎるため処理できません。より短いページでお試しください。'
+      } else {
+        errorMessage = error.message
+      }
+    }
+    
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_ERROR',
       data: {
-        message: '分析中にエラーが発生しました',
+        message: errorMessage,
         error: error instanceof Error ? error.message : 'Unknown error'
       }
     })

@@ -61,19 +61,8 @@ export class AISessionManager {
 
       console.log('Creating AI session...')
       this.session = await LanguageModel.create({
-        initialPrompts: [
-          {
-            role: 'system',
-            content: `あなたは日本語校正の専門家です。
-
-テキストの誤字・脱字・文法エラー・不自然な表現を見つけて、修正案を提示してください。
-
-問題が見つかった場合は、以下の形式で回答してください：
-間違い：「○○」→ 修正案：「○○」
-
-問題がない場合は「問題ありません」と答えてください。`,
-          },
-        ],
+        temperature: 0.7,
+        topK: 10,
       })
 
       console.log('AI session created successfully')
@@ -85,7 +74,7 @@ export class AISessionManager {
     }
   }
 
-  async analyzeText(text: string, options?: { signal?: AbortSignal }): Promise<string> {
+  async analyzeText(userPrompt: string, content: string, options?: { signal?: AbortSignal }): Promise<string> {
     if (!this.session) {
       await this.initialize()
     }
@@ -95,9 +84,11 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `このテキストを校正してください。問題があれば指摘し、修正案を提示してください：
+      const prompt = `${userPrompt}
 
-${text}`
+以下のHTML内容を処理してください：
+
+${content}`
       const response = await this.session.prompt(prompt, options)
       return response
     } catch (error) {
@@ -105,75 +96,11 @@ ${text}`
         console.log('Analysis aborted by user')
         throw error
       }
-      console.error('Failed to analyze text:', error)
-      throw this.createError('PROMPT_FAILED', 'テキスト分析に失敗しました。')
+      console.error('Failed to analyze content:', error)
+      throw this.createError('PROMPT_FAILED', 'コンテンツ分析に失敗しました。')
     }
   }
 
-  async *analyzeTextStreaming(
-    text: string,
-    onChunk?: (data: { chunk: string; partialErrors: any[]; progress: number }) => void,
-    options?: { signal?: AbortSignal }
-  ): AsyncIterable<{ chunk: string; partialErrors: any[]; isComplete: boolean }> {
-    if (!this.session) {
-      await this.initialize()
-    }
-
-    if (!this.session) {
-      throw this.createError('SESSION_FAILED', 'AIセッションの作成に失敗しました。')
-    }
-
-    try {
-      const prompt = `このテキストを校正してください。問題があれば指摘し、修正案を提示してください：
-
-${text}`
-      console.log('Starting streaming analysis...')
-
-      const stream = this.session.promptStreaming(prompt, options)
-      let previousText = ''
-      let chunkCount = 0
-
-      for await (const chunk of stream) {
-        chunkCount++
-
-        // Chrome AI APIのバグ対応: 各チャンクは累積的なので差分を計算
-        const newText = chunk.slice(previousText.length)
-        const isComplete = this.isResponseComplete(chunk)
-
-        // 進捗計算
-        const progress = isComplete ? 100 : Math.min(10 + chunkCount * 5, 90)
-
-        // コールバックで通知
-        if (onChunk) {
-          onChunk({
-            chunk: newText,
-            partialErrors: [],
-            progress,
-          })
-        }
-
-        // ジェネレータで yield
-        yield {
-          chunk: newText,
-          partialErrors: [],
-          isComplete,
-        }
-
-        previousText = chunk
-
-        if (isComplete) {
-          break
-        }
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Streaming analysis aborted by user')
-        throw error
-      }
-      console.error('Failed to analyze text streaming:', error)
-      throw this.createError('PROMPT_FAILED', 'ストリーミングテキスト分析に失敗しました。')
-    }
-  }
 
   async destroy(): Promise<void> {
     if (this.session) {
@@ -260,18 +187,6 @@ ${text}`
     }
   }
 
-  private isResponseComplete(text: string): boolean {
-    // テキスト出力用の簡単な完了判定
-    const trimmed = text.trim()
-    return (
-      trimmed.length > 10 && // 最低限の長さがある
-      (trimmed.includes('問題ありません') || // 問題なしパターン
-       trimmed.includes('修正案：') || // 問題ありパターン
-       trimmed.endsWith('。') || // 文として完了
-       trimmed.endsWith('です') ||
-       trimmed.endsWith('ます'))
-    )
-  }
 
   private createError(code: AIError['code'], message: string): AIError {
     return { code, message }

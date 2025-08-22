@@ -9,14 +9,20 @@
 <body>
   <div class="typochecker-popup">
     <header>
-      <h1>TypoChecker</h1>
+      <h1>Page AI Assistant</h1>
       <div class="status-indicator" id="status"></div>
     </header>
     
     <main>
+      <section class="prompt-section">
+        <label for="user-prompt" class="prompt-label">AIへの指示を入力してください</label>
+        <textarea id="user-prompt" class="prompt-input" rows="4" placeholder="例：このページの内容を要約してください&#10;例：重要なポイントを箇条書きにしてください&#10;例：見出し構造を分析してください"></textarea>
+        <p class="content-info">※ ページのHTML全体を処理対象として送信します</p>
+      </section>
+      
       <section class="analyze-section">
-        <button id="analyze-btn" class="primary-btn">
-          ページをチェック
+        <button id="analyze-btn" class="primary-btn" disabled>
+          AIで処理
         </button>
         <div class="progress-container hidden" id="progress-container">
           <div class="progress-bar" id="progress-bar"></div>

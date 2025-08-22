@@ -47,6 +47,51 @@ main {
   padding: 16px;
 }
 
+.prompt-section {
+  margin-bottom: 16px;
+}
+
+.prompt-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.prompt-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  background: white;
+  color: #333;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 16px;
+  min-height: 80px;
+}
+
+.prompt-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.prompt-input::placeholder {
+  color: #999;
+  font-size: 13px;
+}
+
+.content-info {
+  margin: 0;
+  font-size: 12px;
+  color: #666;
+  text-align: right;
+}
+
 .analyze-section {
   margin-bottom: 16px;
 }

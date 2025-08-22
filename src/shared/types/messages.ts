@@ -44,6 +44,7 @@ export interface AnalysisStats {
 export interface StartAnalysisMessage {
   type: 'START_ANALYSIS'
   tabId: number
+  userPrompt: string
 }
 
 export interface ProgressUpdateMessage {

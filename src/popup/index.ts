@@ -2,6 +2,7 @@ import type { TypoError, AnalysisResult } from '../shared/types/messages'
 
 class PopupUI {
   private analyzeBtn: HTMLButtonElement
+  private promptInput: HTMLTextAreaElement
   private progressContainer: HTMLElement
   private progressBar: HTMLElement
   private progressText: HTMLElement
@@ -10,6 +11,7 @@ class PopupUI {
   
   constructor() {
     this.analyzeBtn = document.getElementById('analyze-btn') as HTMLButtonElement
+    this.promptInput = document.getElementById('user-prompt') as HTMLTextAreaElement
     this.progressContainer = document.getElementById('progress-container') as HTMLElement
     this.progressBar = document.getElementById('progress-bar') as HTMLElement
     this.progressText = document.getElementById('progress-text') as HTMLElement
@@ -24,6 +26,11 @@ class PopupUI {
   private setupEventListeners(): void {
     this.analyzeBtn.addEventListener('click', () => this.startAnalysis())
     
+    // プロンプト入力監視
+    this.promptInput.addEventListener('input', () => {
+      this.updateAnalyzeButtonState()
+    })
+    
     document.getElementById('export-btn')?.addEventListener('click', () => {
       this.exportResults()
     })
@@ -31,6 +38,11 @@ class PopupUI {
     document.getElementById('settings-btn')?.addEventListener('click', () => {
       chrome.runtime.openOptionsPage()
     })
+  }
+  
+  private updateAnalyzeButtonState(): void {
+    const hasPrompt = this.promptInput.value.trim().length > 0
+    this.analyzeBtn.disabled = !hasPrompt
   }
   
   private setupMessageListeners(): void {
@@ -79,34 +91,41 @@ class PopupUI {
       return
     }
     
+    const userPrompt = this.promptInput.value.trim()
+    if (!userPrompt) {
+      this.showError('プロンプトを入力してください')
+      return
+    }
+    
     this.analyzeBtn.disabled = true
     this.progressContainer.classList.remove('hidden')
     
-    // 通常分析を実行
+    // 分析を実行（HTML全体を取得）
     chrome.runtime.sendMessage({
       type: 'START_ANALYSIS',
       tabId: tab.id,
+      userPrompt,
     })
   }
   
   private updateProgress(current: number, total: number): void {
     const percentage = (current / total) * 100
     this.progressBar.style.width = `${percentage}%`
-    this.progressText.textContent = `${current}/${total} チャンク処理中...`
+    this.progressText.textContent = `${current}/${total} 処理中...`
   }
 
   private handleAnalysisComplete(data: { fullText: string }): void {
     this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
+    this.updateAnalyzeButtonState()
     this.resultSection.classList.remove('hidden')
     
     if (!data.fullText.trim()) {
-      this.resultTextArea.value = '問題は見つかりませんでした。'
+      this.resultTextArea.value = '処理結果がありませんでした。'
     } else {
       this.resultTextArea.value = data.fullText
     }
     
-    this.showToast('分析完了', 'success')
+    this.showToast('処理完了', 'success')
   }
   
   private showError(message: string): void {
