@@ -72,6 +72,22 @@ class PopupUI {
         case 'MODEL_DOWNLOAD_ERROR':
           this.handleModelDownloadError(message.data)
           break
+
+        case 'ANALYSIS_STREAM_START':
+          this.handleStreamingStart(message.data.message)
+          break
+
+        case 'ANALYSIS_STREAM_CHUNK':
+          this.handleStreamingChunk(message.data)
+          break
+
+        case 'ANALYSIS_STREAM_END':
+          this.handleStreamingEnd(message.data)
+          break
+
+        case 'ANALYSIS_STREAM_ERROR':
+          this.handleStreamingError(message.data)
+          break
       }
     })
   }
@@ -87,11 +103,23 @@ class PopupUI {
     this.analyzeBtn.disabled = true
     this.progressContainer.classList.remove('hidden')
     this.errorList.innerHTML = ''
+    this.summarySection.classList.add('hidden')
+    this.errorsSection.classList.add('hidden')
     
-    chrome.runtime.sendMessage({
-      type: 'START_ANALYSIS',
-      tabId: tab.id,
-    })
+    // ストリーミングモードかどうかをチェック（後で実装）
+    const useStreaming = true // デフォルトでストリーミング有効
+    
+    if (useStreaming) {
+      chrome.runtime.sendMessage({
+        type: 'START_STREAMING_ANALYSIS',
+        tabId: tab.id,
+      })
+    } else {
+      chrome.runtime.sendMessage({
+        type: 'START_ANALYSIS',
+        tabId: tab.id,
+      })
+    }
   }
   
   private updateProgress(current: number, total: number): void {
@@ -279,6 +307,125 @@ class PopupUI {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
     this.showError(`${data.message}: ${data.error}`)
+  }
+
+  private handleStreamingStart(message: string): void {
+    console.log('Streaming analysis started:', message)
+    this.progressContainer.classList.remove('hidden')
+    this.progressText.textContent = message
+    this.progressBar.style.width = '5%'
+    this.analyzeBtn.disabled = true
+    
+    // エラーリストをクリアして準備
+    this.errorList.innerHTML = ''
+    this.summarySection.classList.add('hidden')
+    this.errorsSection.classList.remove('hidden')
+  }
+
+  private handleStreamingChunk(data: { chunk: string; partialErrors?: any[]; progress?: number }): void {
+    console.log('Streaming chunk received:', data)
+    
+    // プログレスバー更新
+    if (data.progress) {
+      this.progressBar.style.width = `${data.progress}%`
+      this.progressText.textContent = `分析中... ${data.progress}%`
+    }
+    
+    // 新しいエラーがあれば追加表示
+    if (data.partialErrors && data.partialErrors.length > 0) {
+      this.appendStreamingErrors(data.partialErrors)
+    }
+  }
+
+  private handleStreamingEnd(data: { finalResults: any; stats: any }): void {
+    console.log('Streaming analysis completed:', data)
+    
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    
+    // 最終結果の統計を表示
+    this.summarySection.classList.remove('hidden')
+    this.updateStatistics(data.stats)
+    
+    this.showToast(`分析完了: ${data.stats.totalErrors}個のエラーを検出`, 'success')
+  }
+
+  private handleStreamingError(data: { message: string; error: string }): void {
+    console.error('Streaming analysis error:', data)
+    
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    this.showError(`${data.message}: ${data.error}`)
+  }
+
+  private appendStreamingErrors(errors: any[]): void {
+    errors.forEach((error, index) => {
+      // 重複チェック
+      const existingErrors = this.errorList.querySelectorAll('.error-item')
+      const isDuplicate = Array.from(existingErrors).some(el => {
+        const suggestion = el.querySelector('.error-suggestion')?.textContent
+        return suggestion?.includes(error.suggestion || '')
+      })
+      
+      if (!isDuplicate) {
+        const errorElement = this.createErrorElement(error, Date.now() + index)
+        this.errorList.appendChild(errorElement)
+        
+        // アニメーション効果
+        errorElement.style.opacity = '0'
+        setTimeout(() => {
+          errorElement.style.opacity = '1'
+          errorElement.style.transition = 'opacity 0.3s ease-in'
+        }, 50)
+      }
+    })
+  }
+
+  private createErrorElement(error: any, index: number): HTMLElement {
+    const errorDiv = document.createElement('div')
+    errorDiv.className = `error-item ${error.severity || 'warning'}`
+    errorDiv.dataset.type = error.type
+    errorDiv.dataset.index = index.toString()
+    
+    errorDiv.innerHTML = `
+      <div class="error-header">
+        <span class="error-type">${this.getTypeLabel(error.type)}</span>
+        <span class="error-severity">${this.getSeverityLabel(error.severity || 'warning')}</span>
+      </div>
+      <div class="error-text">${this.escapeHtml(error.original || error.text || '')}</div>
+      <div class="error-suggestion">
+        修正案: ${this.escapeHtml(error.suggestion || '')}
+      </div>
+      <div class="error-actions">
+        <button class="copy-btn" data-text="${this.escapeHtml(error.suggestion || '')}">
+          コピー
+        </button>
+      </div>
+    `
+    
+    // コピーボタンのイベントリスナー
+    const copyBtn = errorDiv.querySelector('.copy-btn')
+    if (copyBtn) {
+      copyBtn.addEventListener('click', (e) => {
+        const text = (e.target as HTMLElement).dataset.text
+        if (text) {
+          navigator.clipboard.writeText(text)
+          this.showToast('コピーしました')
+        }
+      })
+    }
+    
+    return errorDiv
+  }
+
+  private updateStatistics(stats: any): void {
+    const typoElement = document.getElementById('typo-count')
+    const grammarElement = document.getElementById('grammar-count')
+    const japaneseElement = document.getElementById('japanese-count')
+    
+    if (typoElement) typoElement.textContent = stats.typoCount.toString()
+    if (grammarElement) grammarElement.textContent = stats.grammarCount.toString()
+    if (japaneseElement) japaneseElement.textContent = stats.japaneseCount.toString()
   }
 
   private showDownloadProgress(progress: number): void {

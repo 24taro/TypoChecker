@@ -100,6 +100,43 @@ export interface InitiateModelDownloadMessage {
   type: 'INITIATE_MODEL_DOWNLOAD'
 }
 
+export interface StartStreamingAnalysisMessage {
+  type: 'START_STREAMING_ANALYSIS'
+  tabId: number
+}
+
+export interface AnalysisStreamStartMessage {
+  type: 'ANALYSIS_STREAM_START'
+  data: {
+    message: string
+  }
+}
+
+export interface AnalysisStreamChunkMessage {
+  type: 'ANALYSIS_STREAM_CHUNK'
+  data: {
+    chunk: string
+    partialErrors?: TypoError[]
+    progress?: number
+  }
+}
+
+export interface AnalysisStreamEndMessage {
+  type: 'ANALYSIS_STREAM_END'
+  data: {
+    finalResults: AnalysisResult
+    stats: AnalysisStats
+  }
+}
+
+export interface AnalysisStreamErrorMessage {
+  type: 'ANALYSIS_STREAM_ERROR'
+  data: {
+    message: string
+    error: string
+  }
+}
+
 export type Message =
   | ExtractTextMessage
   | AnalysisCompleteMessage
@@ -111,3 +148,8 @@ export type Message =
   | ModelDownloadCompleteMessage
   | ModelDownloadErrorMessage
   | InitiateModelDownloadMessage
+  | StartStreamingAnalysisMessage
+  | AnalysisStreamStartMessage
+  | AnalysisStreamChunkMessage
+  | AnalysisStreamEndMessage
+  | AnalysisStreamErrorMessage

@@ -118,6 +118,75 @@ export class AISessionManager {
     }
   }
 
+  async *analyzeTextStreaming(
+    text: string, 
+    onChunk?: (data: { chunk: string; partialErrors: any[]; progress: number }) => void,
+    options?: { signal?: AbortSignal }
+  ): AsyncIterable<{ chunk: string; partialErrors: any[]; isComplete: boolean }> {
+    if (!this.session) {
+      await this.initialize()
+    }
+
+    if (!this.session) {
+      throw this.createError('SESSION_FAILED', 'AIセッションの作成に失敗しました。')
+    }
+
+    try {
+      const prompt = `以下のテキストを分析してエラーを検出してください：\n\n${text}`
+      console.log('Starting streaming analysis...')
+      
+      const stream = this.session.promptStreaming(prompt, options)
+      let previousText = ''
+      let chunkCount = 0
+
+      for await (const chunk of stream) {
+        chunkCount++
+        
+        // Chrome AI APIのバグ対応: 各チャンクは累積的なので差分を計算
+        const newText = chunk.slice(previousText.length)
+        const isComplete = this.isResponseComplete(chunk)
+        
+        // 部分的なエラーを解析
+        const partialErrors = this.tryParsePartialErrors(chunk)
+        
+        // 進捗計算（完了かどうかで判定）
+        const progress = isComplete ? 100 : Math.min(10 + chunkCount * 5, 90)
+        
+        const chunkData = {
+          chunk: newText,
+          partialErrors,
+          progress
+        }
+
+        // コールバックで通知
+        if (onChunk) {
+          onChunk(chunkData)
+        }
+
+        // ジェネレータで yield
+        yield {
+          chunk: newText,
+          partialErrors,
+          isComplete
+        }
+
+        previousText = chunk
+
+        if (isComplete) {
+          console.log('Streaming analysis completed')
+          break
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Streaming analysis aborted by user')
+        throw error
+      }
+      console.error('Failed to analyze text streaming:', error)
+      throw this.createError('PROMPT_FAILED', 'ストリーミングテキスト分析に失敗しました。')
+    }
+  }
+
   parseAnalysisResult(response: string): Partial<AIAnalysisResult> {
     try {
       const jsonMatch = response.match(/\{[\s\S]*\}/)
@@ -217,6 +286,67 @@ export class AISessionManager {
       
       throw error
     }
+  }
+
+  private isResponseComplete(text: string): boolean {
+    // JSONの完了を確認（閉じ括弧があり、構造が完整している）
+    const openBraces = (text.match(/\{/g) || []).length
+    const closeBraces = (text.match(/\}/g) || []).length
+    const openBrackets = (text.match(/\[/g) || []).length
+    const closeBrackets = (text.match(/\]/g) || []).length
+    
+    // 基本的な構造チェック
+    if (openBraces === 0 || closeBraces === 0) return false
+    
+    // JSONが完成している可能性をチェック
+    return openBraces === closeBraces && openBrackets === closeBrackets && 
+           text.includes('"errors"') && text.trim().endsWith('}')
+  }
+
+  private tryParsePartialErrors(text: string): any[] {
+    const errors: any[] = []
+    
+    try {
+      // 完全なJSONとして解析を試行
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        if (parsed.errors && Array.isArray(parsed.errors)) {
+          return parsed.errors
+        }
+      }
+    } catch {
+      // 完全なJSONでない場合、部分的に解析
+    }
+
+    // 部分的なエラー要素を正規表現で抽出
+    const errorPattern = /\{\s*"type":\s*"(typo|grammar|japanese)",\s*"severity":\s*"(error|warning|info)",\s*"original":\s*"([^"]*)",\s*"suggestion":\s*"([^"]*)"\s*(?:,\s*"(?:context|explanation)":\s*"[^"]*")?\s*\}/g
+    
+    let match
+    while ((match = errorPattern.exec(text)) !== null) {
+      try {
+        const errorObj = JSON.parse(match[0])
+        errors.push(errorObj)
+      } catch {
+        // 個別のエラーオブジェクトの解析に失敗した場合はスキップ
+        continue
+      }
+    }
+
+    // より簡単なパターンでも試行
+    if (errors.length === 0) {
+      const simplePattern = /"type":\s*"(typo|grammar|japanese)"[^}]*?"suggestion":\s*"([^"]*)"/g
+      while ((match = simplePattern.exec(text)) !== null) {
+        errors.push({
+          type: match[1],
+          severity: 'warning',
+          original: '',
+          suggestion: match[2]
+        })
+      }
+    }
+
+    return errors
   }
 
   private createError(code: AIError['code'], message: string): AIError {
