@@ -174,36 +174,31 @@ async function handleStreamingAnalysis(tabId: number, sender: chrome.runtime.Mes
   try {
     console.log('Starting streaming analysis for tab:', tabId)
     
-    // まずページからテキストを抽出
-    await chrome.scripting.executeScript({
+    // ページコンテンツを直接抽出（メッセージ競合を回避）
+    const results = await chrome.scripting.executeScript({
       target: { tabId },
-      func: extractPageContent,
+      func: () => {
+        return {
+          url: window.location.href,
+          title: document.title,
+          text: document.body.innerText,
+        }
+      },
     })
     
-    // ページコンテンツの受信を待つ
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        chrome.runtime.onMessage.removeListener(contentListener)
-        reject(new Error('Page content extraction timeout'))
-      }, 10000)
-
-      const contentListener = async (message: any, contentSender: chrome.runtime.MessageSender) => {
-        if (contentSender.tab?.id === tabId && message.type === 'PAGE_CONTENT') {
-          chrome.runtime.onMessage.removeListener(contentListener)
-          clearTimeout(timeout)
-          
-          try {
-            // ストリーミング解析を開始
-            await processStreamingAnalysis(message.data, sender)
-            resolve()
-          } catch (error) {
-            reject(error)
-          }
-        }
-      }
-      
-      chrome.runtime.onMessage.addListener(contentListener)
+    if (!results || results.length === 0 || !results[0].result) {
+      throw new Error('Failed to extract page content')
+    }
+    
+    const pageData = results[0].result
+    console.log('Page content extracted directly:', {
+      url: pageData.url,
+      textLength: pageData.text?.length || 0,
     })
+    
+    // ストリーミング解析を開始
+    await processStreamingAnalysis(pageData, sender)
+    
   } catch (error) {
     console.error('Failed to start streaming analysis:', error)
     throw error
