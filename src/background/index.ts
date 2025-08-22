@@ -45,6 +45,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ error: error.message })
         })
       return true
+
+    case 'INITIATE_MODEL_DOWNLOAD':
+      console.log('Model download requested')
+      aiSession.initiateModelDownload()
+        .then(() => {
+          sendResponse({ success: true })
+        })
+        .catch((error) => {
+          console.error('Model download failed:', error)
+          sendResponse({ error: error.message })
+        })
+      return true
       
     default:
       console.log('Unknown message type:', message.type)

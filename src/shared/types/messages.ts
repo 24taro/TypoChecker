@@ -64,9 +64,50 @@ export interface PageContentMessage {
   }
 }
 
+export interface ModelDownloadStartMessage {
+  type: 'MODEL_DOWNLOAD_START'
+  data: {
+    message: string
+  }
+}
+
+export interface ModelDownloadProgressMessage {
+  type: 'MODEL_DOWNLOAD_PROGRESS'
+  data: {
+    status: 'downloading'
+    message: string
+    progress?: number
+  }
+}
+
+export interface ModelDownloadCompleteMessage {
+  type: 'MODEL_DOWNLOAD_COMPLETE'
+  data: {
+    message: string
+    success: boolean
+  }
+}
+
+export interface ModelDownloadErrorMessage {
+  type: 'MODEL_DOWNLOAD_ERROR'
+  data: {
+    message: string
+    error: string
+  }
+}
+
+export interface InitiateModelDownloadMessage {
+  type: 'INITIATE_MODEL_DOWNLOAD'
+}
+
 export type Message =
   | ExtractTextMessage
   | AnalysisCompleteMessage
   | StartAnalysisMessage
   | ProgressUpdateMessage
   | PageContentMessage
+  | ModelDownloadStartMessage
+  | ModelDownloadProgressMessage
+  | ModelDownloadCompleteMessage
+  | ModelDownloadErrorMessage
+  | InitiateModelDownloadMessage

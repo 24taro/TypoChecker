@@ -57,8 +57,20 @@ class PopupUI {
           this.handleAnalysisError(message.error)
           break
           
+        case 'MODEL_DOWNLOAD_START':
+          this.handleModelDownloadStart(message.data.message)
+          break
+          
         case 'MODEL_DOWNLOAD_PROGRESS':
-          this.showDownloadProgress(message.progress)
+          this.handleModelDownloadProgress(message.data)
+          break
+
+        case 'MODEL_DOWNLOAD_COMPLETE':
+          this.handleModelDownloadComplete(message.data)
+          break
+
+        case 'MODEL_DOWNLOAD_ERROR':
+          this.handleModelDownloadError(message.data)
           break
       }
     })
@@ -218,6 +230,57 @@ class PopupUI {
     }, 3000)
   }
   
+  private async initiateModelDownload(): Promise<void> {
+    try {
+      this.analyzeBtn.disabled = true
+      this.progressContainer.classList.remove('hidden')
+      this.progressText.textContent = 'AIモデルのダウンロードを準備中...'
+      this.progressBar.style.width = '10%'
+      
+      await chrome.runtime.sendMessage({ type: 'INITIATE_MODEL_DOWNLOAD' })
+    } catch (error) {
+      console.error('Failed to initiate model download:', error)
+      this.showError('モデルダウンロードの開始に失敗しました')
+    }
+  }
+
+  private handleModelDownloadStart(message: string): void {
+    console.log('Model download started:', message)
+    this.progressContainer.classList.remove('hidden')
+    this.progressText.textContent = message
+    this.progressBar.style.width = '20%'
+    this.analyzeBtn.disabled = true
+  }
+
+  private handleModelDownloadProgress(data: { message: string; progress?: number }): void {
+    console.log('Model download progress:', data)
+    this.progressText.textContent = data.message
+    if (data.progress) {
+      this.progressBar.style.width = `${Math.round(data.progress)}%`
+    }
+  }
+
+  private handleModelDownloadComplete(data: { message: string; success: boolean }): void {
+    console.log('Model download completed:', data)
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    
+    if (data.success) {
+      this.showToast(data.message, 'success')
+      // AI可用性を再チェック
+      this.checkAIAvailability()
+    } else {
+      this.showError(data.message)
+    }
+  }
+
+  private handleModelDownloadError(data: { message: string; error: string }): void {
+    console.error('Model download error:', data)
+    this.progressContainer.classList.add('hidden')
+    this.analyzeBtn.disabled = false
+    this.showError(`${data.message}: ${data.error}`)
+  }
+
   private showDownloadProgress(progress: number): void {
     this.progressText.textContent = `AIモデルダウンロード中: ${Math.round(progress)}%`
     this.progressBar.style.width = `${progress}%`
@@ -244,7 +307,12 @@ class PopupUI {
           break
         
         case 'after-download':
-          this.showMessage('AIモデルのダウンロードが必要です。初回実行時にダウンロードされます。')
+          this.showMessage('AIモデルのダウンロード中です。しばらくお待ちください。')
+          break
+
+        case 'downloadable':
+          this.showMessage('AIモデルをダウンロードします。')
+          this.initiateModelDownload()
           break
         
         case 'readily':
@@ -263,7 +331,10 @@ class PopupUI {
     
     let message = 'エラーが発生しました'
     
-    switch (error.code) {
+    // エラーオブジェクトにcodeプロパティがあるかチェック
+    const errorCode = 'code' in error ? error.code : undefined
+    
+    switch (errorCode) {
       case 'NOT_AVAILABLE':
         message = 'Chrome AI APIが利用できません。設定を確認してください。'
         break
