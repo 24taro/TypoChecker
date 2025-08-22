@@ -231,10 +231,20 @@ async function processStreamingAnalysis(
     }
 
     // ストリーミング解析を実行
+    let chunkCount = 0
     for await (const streamData of aiSession.analyzeTextStreaming(
       data.text,
       undefined, // コールバックは使わずに、for awaitで処理
     )) {
+      chunkCount++
+      console.log(`🔄 Stream chunk ${chunkCount}:`, {
+        chunkLength: streamData.chunk.length,
+        chunk: streamData.chunk.substring(0, 100) + (streamData.chunk.length > 100 ? '...' : ''),
+        partialErrorsCount: streamData.partialErrors.length,
+        partialErrors: streamData.partialErrors,
+        isComplete: streamData.isComplete
+      })
+      
       // 新しいエラーをすべてのエラーリストに追加
       if (streamData.partialErrors.length > 0) {
         // 重複チェック（既に追加されたエラーを避ける）
@@ -246,7 +256,10 @@ async function processStreamingAnalysis(
           )
         )
         
-        allErrors.push(...newErrors)
+        if (newErrors.length > 0) {
+          console.log(`✨ New errors found:`, newErrors)
+          allErrors.push(...newErrors)
+        }
       }
 
       // チャンクデータをPopupに送信
@@ -262,6 +275,7 @@ async function processStreamingAnalysis(
       }
 
       if (streamData.isComplete) {
+        console.log(`✅ Streaming completed after ${chunkCount} chunks`)
         break
       }
     }
