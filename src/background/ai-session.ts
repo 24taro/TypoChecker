@@ -105,7 +105,25 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを分析してエラーを検出してください：\n\n${text}`
+      const prompt = `以下のテキストを分析して、タイポ、文法エラー、不自然な日本語表現を検出してください。
+
+【重要】回答は必ず以下の正確なJSON形式で返してください：
+
+{
+  "errors": [
+    {
+      "type": "typo",
+      "severity": "warning", 
+      "original": "元のテキスト",
+      "suggestion": "修正案"
+    }
+  ]
+}
+
+分析対象テキスト：
+${text}
+
+JSON形式以外での回答は禁止です。必ずJSONのみを返してください。`
       const response = await this.session.prompt(prompt, options)
       return response
     } catch (error) {
@@ -132,7 +150,25 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを分析してエラーを検出してください：\n\n${text}`
+      const prompt = `以下のテキストを分析して、タイポ、文法エラー、不自然な日本語表現を検出してください。
+
+【重要】回答は必ず以下の正確なJSON形式で返してください：
+
+{
+  "errors": [
+    {
+      "type": "typo",
+      "severity": "warning", 
+      "original": "元のテキスト",
+      "suggestion": "修正案"
+    }
+  ]
+}
+
+分析対象テキスト：
+${text}
+
+JSON形式以外での回答は禁止です。必ずJSONのみを返してください。`
       console.log('Starting streaming analysis...')
       
       const stream = this.session.promptStreaming(prompt, options)
