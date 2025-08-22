@@ -61,26 +61,25 @@ export class AISessionManager {
         initialPrompts: [{
           role: 'system',
           content: `あなたは日本語の文章校正アシスタントです。
-与えられたテキストから以下を検出してください：
-1. タイポ（誤字）
-2. 文法エラー
-3. 日本語として不自然な表現
+与えられたテキストを分析し、以下の問題を見つけて指摘してください：
 
-結果は以下のJSON形式で返してください：
-{
-  "errors": [
-    {
-      "type": "typo" | "grammar" | "japanese",
-      "severity": "error" | "warning" | "info",
-      "original": "元のテキスト",
-      "suggestion": "修正案",
-      "context": "周辺のテキスト（オプション）"
-    }
-  ]
-}
+1. タイポ（誤字・脱字）
+2. 文法エラー 
+3. 不自然な日本語表現
 
-エラーが見つからない場合は空の配列を返してください。
-必ず有効なJSONを返してください。`
+見つけた問題は以下の形式で箇条書きで報告してください：
+
+【タイポ】
+・「～」→「～」に修正してください
+・「～」は「～」の誤字です
+
+【文法エラー】  
+・「～」は「～」に修正してください
+
+【日本語表現】
+・「～」は「～」がより自然です
+
+問題が見つからない場合は「問題は見つかりませんでした。」と報告してください。`
         }],
         temperature: 0.2,
         topK: 3,
@@ -105,25 +104,9 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを分析して、タイポ、文法エラー、不自然な日本語表現を検出してください。
+      const prompt = `以下のテキストを校正してください：
 
-【重要】回答は必ず以下の正確なJSON形式で返してください：
-
-{
-  "errors": [
-    {
-      "type": "typo",
-      "severity": "warning", 
-      "original": "元のテキスト",
-      "suggestion": "修正案"
-    }
-  ]
-}
-
-分析対象テキスト：
-${text}
-
-JSON形式以外での回答は禁止です。必ずJSONのみを返してください。`
+${text}`
       const response = await this.session.prompt(prompt, options)
       return response
     } catch (error) {
@@ -150,25 +133,9 @@ JSON形式以外での回答は禁止です。必ずJSONのみを返してくだ
     }
 
     try {
-      const prompt = `以下のテキストを分析して、タイポ、文法エラー、不自然な日本語表現を検出してください。
+      const prompt = `以下のテキストを校正してください：
 
-【重要】回答は必ず以下の正確なJSON形式で返してください：
-
-{
-  "errors": [
-    {
-      "type": "typo",
-      "severity": "warning", 
-      "original": "元のテキスト",
-      "suggestion": "修正案"
-    }
-  ]
-}
-
-分析対象テキスト：
-${text}
-
-JSON形式以外での回答は禁止です。必ずJSONのみを返してください。`
+${text}`
       console.log('Starting streaming analysis...')
       
       const stream = this.session.promptStreaming(prompt, options)
@@ -217,23 +184,6 @@ JSON形式以外での回答は禁止です。必ずJSONのみを返してくだ
     }
   }
 
-  parseAnalysisResult(response: string): Partial<AIAnalysisResult> {
-    try {
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        console.warn('No JSON found in response:', response)
-        return { errors: [] }
-      }
-
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        errors: parsed.errors || [],
-      }
-    } catch (error) {
-      console.error('Failed to parse AI response:', error)
-      return { errors: [] }
-    }
-  }
 
   async destroy(): Promise<void> {
     if (this.session) {

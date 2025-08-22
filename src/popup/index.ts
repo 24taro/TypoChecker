@@ -5,18 +5,16 @@ class PopupUI {
   private progressContainer: HTMLElement
   private progressBar: HTMLElement
   private progressText: HTMLElement
-  private summarySection: HTMLElement
-  private errorsSection: HTMLElement
-  private errorList: HTMLElement
+  private resultSection: HTMLElement
+  private resultTextArea: HTMLTextAreaElement
   
   constructor() {
     this.analyzeBtn = document.getElementById('analyze-btn') as HTMLButtonElement
     this.progressContainer = document.getElementById('progress-container') as HTMLElement
     this.progressBar = document.getElementById('progress-bar') as HTMLElement
     this.progressText = document.getElementById('progress-text') as HTMLElement
-    this.summarySection = document.getElementById('summary-section') as HTMLElement
-    this.errorsSection = document.getElementById('errors-section') as HTMLElement
-    this.errorList = document.getElementById('error-list') as HTMLElement
+    this.resultSection = document.getElementById('result-section') as HTMLElement
+    this.resultTextArea = document.getElementById('result-text') as HTMLTextAreaElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
@@ -25,13 +23,6 @@ class PopupUI {
   
   private setupEventListeners(): void {
     this.analyzeBtn.addEventListener('click', () => this.startAnalysis())
-    
-    document.querySelectorAll('.filter-tabs .tab').forEach((tab) => {
-      tab.addEventListener('click', (e) => {
-        const filter = (e.target as HTMLElement).dataset.filter
-        this.filterErrors(filter)
-      })
-    })
     
     document.getElementById('export-btn')?.addEventListener('click', () => {
       this.exportResults()
@@ -50,7 +41,7 @@ class PopupUI {
           break
           
         case 'ANALYSIS_COMPLETE':
-          this.displayResults(message.data)
+          this.handleAnalysisComplete(message.data)
           break
           
         case 'ANALYSIS_ERROR':
@@ -102,9 +93,6 @@ class PopupUI {
     
     this.analyzeBtn.disabled = true
     this.progressContainer.classList.remove('hidden')
-    this.errorList.innerHTML = ''
-    this.summarySection.classList.add('hidden')
-    this.errorsSection.classList.add('hidden')
     
     // ストリーミングモードかどうかをチェック（後で実装）
     const useStreaming = true // デフォルトでストリーミング有効
@@ -127,111 +115,19 @@ class PopupUI {
     this.progressBar.style.width = `${percentage}%`
     this.progressText.textContent = `${current}/${total} チャンク処理中...`
   }
-  
-  private displayResults(data: { errors?: TypoError[]; url?: string; tokenInfo?: unknown }): void {
+
+  private handleAnalysisComplete(data: { fullText: string }): void {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
+    this.resultSection.classList.remove('hidden')
     
-    if (!data || !data.errors) {
-      this.showMessage('エラーは見つかりませんでした')
-      return
+    if (!data.fullText.trim()) {
+      this.resultTextArea.value = '問題は見つかりませんでした。'
+    } else {
+      this.resultTextArea.value = data.fullText
     }
     
-    this.summarySection.classList.remove('hidden')
-    
-    const typoCount = data.errors.filter((e: TypoError) => e.type === 'typo').length
-    const grammarCount = data.errors.filter((e: TypoError) => e.type === 'grammar').length
-    const japaneseCount = data.errors.filter((e: TypoError) => e.type === 'japanese').length
-    
-    const typoElement = document.getElementById('typo-count')
-    const grammarElement = document.getElementById('grammar-count')
-    const japaneseElement = document.getElementById('japanese-count')
-    
-    if (typoElement) typoElement.textContent = typoCount.toString()
-    if (grammarElement) grammarElement.textContent = grammarCount.toString()
-    if (japaneseElement) japaneseElement.textContent = japaneseCount.toString()
-    
-    this.errorsSection.classList.remove('hidden')
-    this.renderErrors(data.errors)
-  }
-  
-  private renderErrors(errors: TypoError[]): void {
-    this.errorList.innerHTML = errors
-      .map(
-        (error, index) => `
-      <div class="error-item ${error.severity}" data-type="${error.type}" data-index="${index}">
-        <div class="error-header">
-          <span class="error-type">${this.getTypeLabel(error.type)}</span>
-          <span class="error-severity">${this.getSeverityLabel(error.severity)}</span>
-        </div>
-        <div class="error-text">${this.escapeHtml(error.text || error.original || '')}</div>
-        <div class="error-suggestion">
-          修正案: ${this.escapeHtml(error.suggestion || '')}
-        </div>
-        <div class="error-actions">
-          <button class="copy-btn" data-text="${this.escapeHtml(error.suggestion || '')}">
-            コピー
-          </button>
-        </div>
-      </div>
-    `
-      )
-      .join('')
-    
-    this.errorList.querySelectorAll('.copy-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const text = (e.target as HTMLElement).dataset.text
-        if (text) {
-          navigator.clipboard.writeText(text)
-          this.showToast('コピーしました')
-        }
-      })
-    })
-  }
-  
-  private filterErrors(filter: string | undefined): void {
-    const items = this.errorList.querySelectorAll('.error-item')
-    
-    items.forEach((item) => {
-      const itemType = (item as HTMLElement).dataset.type
-      if (filter === 'all' || filter === itemType) {
-        ;(item as HTMLElement).style.display = 'block'
-      } else {
-        ;(item as HTMLElement).style.display = 'none'
-      }
-    })
-    
-    document.querySelectorAll('.filter-tabs .tab').forEach((tab) => {
-      if ((tab as HTMLElement).dataset.filter === filter) {
-        tab.classList.add('active')
-      } else {
-        tab.classList.remove('active')
-      }
-    })
-  }
-  
-  private getTypeLabel(type: string): string {
-    const labels: Record<string, string> = {
-      typo: 'タイポ',
-      grammar: '文法',
-      japanese: '日本語',
-    }
-    return labels[type] || type
-  }
-  
-  private getSeverityLabel(severity: string): string {
-    const labels: Record<string, string> = {
-      error: 'エラー',
-      warning: '警告',
-      info: '情報',
-    }
-    return labels[severity] || severity
-  }
-  
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div')
-    div.textContent = text
-    return div.innerHTML
+    this.showToast('分析完了', 'success')
   }
   
   private showError(message: string): void {
@@ -240,11 +136,9 @@ class PopupUI {
   }
   
   private showMessage(message: string): void {
-    const messageDiv = document.createElement('div')
-    messageDiv.className = 'message-info'
-    messageDiv.textContent = message
-    this.errorList.innerHTML = ''
-    this.errorList.appendChild(messageDiv)
+    this.resultSection.classList.remove('hidden')
+    this.resultTextArea.value = message
+    this.showToast(message)
   }
   
   private showToast(message: string, type = 'success'): void {
@@ -316,13 +210,16 @@ class PopupUI {
     this.progressBar.style.width = '5%'
     this.analyzeBtn.disabled = true
     
-    // エラーリストをクリアして準備
-    this.errorList.innerHTML = ''
-    this.summarySection.classList.add('hidden')
-    this.errorsSection.classList.remove('hidden')
+    // テキストエリアをクリアして表示
+    this.resultTextArea.value = ''
+    this.resultSection.classList.remove('hidden')
   }
 
   private handleStreamingChunk(data: { chunk: string; progress?: number }): void {
+    // チャンクをテキストエリアに追加
+    this.resultTextArea.value += data.chunk
+    this.resultTextArea.scrollTop = this.resultTextArea.scrollHeight
+    
     // プログレスバー更新
     if (data.progress) {
       this.progressBar.style.width = `${data.progress}%`
@@ -330,17 +227,14 @@ class PopupUI {
     }
   }
 
-  private handleStreamingEnd(data: { finalResults: any; stats: any }): void {
-    console.log('Streaming analysis completed:', data)
+  private handleStreamingEnd(data: { fullText: string }): void {
+    console.log('Streaming analysis completed')
     
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
+    this.resultSection.classList.remove('hidden')
     
-    // 最終結果の統計を表示
-    this.summarySection.classList.remove('hidden')
-    this.updateStatistics(data.stats)
-    
-    this.showToast(`分析完了: ${data.stats.totalErrors}個のエラーを検出`, 'success')
+    this.showToast('分析完了', 'success')
   }
 
   private handleStreamingError(data: { message: string; error: string }): void {
@@ -352,52 +246,7 @@ class PopupUI {
   }
 
 
-  private createErrorElement(error: any, index: number): HTMLElement {
-    const errorDiv = document.createElement('div')
-    errorDiv.className = `error-item ${error.severity || 'warning'}`
-    errorDiv.dataset.type = error.type
-    errorDiv.dataset.index = index.toString()
-    
-    errorDiv.innerHTML = `
-      <div class="error-header">
-        <span class="error-type">${this.getTypeLabel(error.type)}</span>
-        <span class="error-severity">${this.getSeverityLabel(error.severity || 'warning')}</span>
-      </div>
-      <div class="error-text">${this.escapeHtml(error.original || error.text || '')}</div>
-      <div class="error-suggestion">
-        修正案: ${this.escapeHtml(error.suggestion || '')}
-      </div>
-      <div class="error-actions">
-        <button class="copy-btn" data-text="${this.escapeHtml(error.suggestion || '')}">
-          コピー
-        </button>
-      </div>
-    `
-    
-    // コピーボタンのイベントリスナー
-    const copyBtn = errorDiv.querySelector('.copy-btn')
-    if (copyBtn) {
-      copyBtn.addEventListener('click', (e) => {
-        const text = (e.target as HTMLElement).dataset.text
-        if (text) {
-          navigator.clipboard.writeText(text)
-          this.showToast('コピーしました')
-        }
-      })
-    }
-    
-    return errorDiv
-  }
 
-  private updateStatistics(stats: any): void {
-    const typoElement = document.getElementById('typo-count')
-    const grammarElement = document.getElementById('grammar-count')
-    const japaneseElement = document.getElementById('japanese-count')
-    
-    if (typoElement) typoElement.textContent = stats.typoCount.toString()
-    if (grammarElement) grammarElement.textContent = stats.grammarCount.toString()
-    if (japaneseElement) japaneseElement.textContent = stats.japaneseCount.toString()
-  }
 
   private showDownloadProgress(progress: number): void {
     this.progressText.textContent = `AIモデルダウンロード中: ${Math.round(progress)}%`
@@ -405,7 +254,20 @@ class PopupUI {
   }
   
   private exportResults(): void {
-    console.log('Export results')
+    const text = this.resultTextArea.value
+    if (!text.trim()) {
+      this.showError('エクスポートする結果がありません')
+      return
+    }
+    
+    const blob = new Blob([text], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `typochecker-result-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    this.showToast('結果をエクスポートしました')
   }
 
   private async checkAIAvailability(): Promise<void> {

@@ -128,11 +128,8 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // テキストを分析（現時点では全体を一度に送信、Phase 2でチャンク処理を実装）
+    // テキストを分析
     const analysisResult = await aiSession.analyzeText(data.text)
-    
-    // 結果をパース
-    const parsedResult = aiSession.parseAnalysisResult(analysisResult)
 
     // トークン情報を取得
     const tokenInfo = aiSession.getTokensInfo()
@@ -144,13 +141,13 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_COMPLETE',
       data: {
-        ...parsedResult,
+        fullText: analysisResult,
         url: data.url,
         tokenInfo,
       },
     })
 
-    return { success: true, data: parsedResult }
+    return { success: true, data: analysisResult }
   } catch (error) {
     console.error('Failed to process content:', error)
     
@@ -209,8 +206,6 @@ async function processStreamingAnalysis(
   data: { url: string; title: string; text: string },
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
-  const allErrors: any[] = []
-  
   try {
     console.log('Processing streaming analysis for:', {
       url: data.url,
@@ -256,32 +251,18 @@ async function processStreamingAnalysis(
       }
     }
 
-    // 最終結果を解析
-    const parsedResult = aiSession.parseAnalysisResult(fullResponse)
-    allErrors.push(...(parsedResult.errors || []))
-
-    // 最終結果の統計を計算
-    const stats = {
-      totalErrors: allErrors.length,
-      typoCount: allErrors.filter(e => e.type === 'typo').length,
-      grammarCount: allErrors.filter(e => e.type === 'grammar').length,
-      japaneseCount: allErrors.filter(e => e.type === 'japanese').length,
-    }
-
     // ストリーミング完了を通知
     if (sender.tab?.id) {
       chrome.tabs.sendMessage(sender.tab.id, {
         type: 'ANALYSIS_STREAM_END',
         data: {
-          finalResults: { errors: allErrors },
-          stats
+          fullText: fullResponse
         }
       })
     }
 
     console.log('Streaming analysis completed:', {
-      totalErrors: allErrors.length,
-      stats
+      textLength: fullResponse.length
     })
 
   } catch (error) {
