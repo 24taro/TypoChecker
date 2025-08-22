@@ -40,14 +40,6 @@ class PopupUI {
           this.updateProgress(message.current, message.total)
           break
           
-        case 'ANALYSIS_COMPLETE':
-          this.handleAnalysisComplete(message.data)
-          break
-          
-        case 'ANALYSIS_ERROR':
-          this.handleAnalysisError(message.error)
-          break
-          
         case 'MODEL_DOWNLOAD_START':
           this.handleModelDownloadStart(message.data.message)
           break
@@ -64,20 +56,16 @@ class PopupUI {
           this.handleModelDownloadError(message.data)
           break
 
-        case 'ANALYSIS_STREAM_START':
-          this.handleStreamingStart(message.data.message)
+        case 'ANALYSIS_START':
+          this.handleAnalysisStart(message.data.message)
           break
 
-        case 'ANALYSIS_STREAM_CHUNK':
-          this.handleStreamingChunk(message.data)
+        case 'ANALYSIS_COMPLETE':
+          this.handleAnalysisComplete(message.data)
           break
 
-        case 'ANALYSIS_STREAM_END':
-          this.handleStreamingEnd(message.data)
-          break
-
-        case 'ANALYSIS_STREAM_ERROR':
-          this.handleStreamingError(message.data)
+        case 'ANALYSIS_ERROR':
+          this.handleAnalysisError(new Error(message.data.message || 'Unknown error'))
           break
       }
     })
@@ -94,20 +82,11 @@ class PopupUI {
     this.analyzeBtn.disabled = true
     this.progressContainer.classList.remove('hidden')
     
-    // ストリーミングモードかどうかをチェック（後で実装）
-    const useStreaming = true // デフォルトでストリーミング有効
-    
-    if (useStreaming) {
-      chrome.runtime.sendMessage({
-        type: 'START_STREAMING_ANALYSIS',
-        tabId: tab.id,
-      })
-    } else {
-      chrome.runtime.sendMessage({
-        type: 'START_ANALYSIS',
-        tabId: tab.id,
-      })
-    }
+    // 通常分析を実行
+    chrome.runtime.sendMessage({
+      type: 'START_ANALYSIS',
+      tabId: tab.id,
+    })
   }
   
   private updateProgress(current: number, total: number): void {
@@ -203,11 +182,11 @@ class PopupUI {
     this.showError(`${data.message}: ${data.error}`)
   }
 
-  private handleStreamingStart(message: string): void {
-    console.log('Streaming analysis started:', message)
+  private handleAnalysisStart(message: string): void {
+    console.log('Analysis started:', message)
     this.progressContainer.classList.remove('hidden')
     this.progressText.textContent = message
-    this.progressBar.style.width = '5%'
+    this.progressBar.style.width = '50%'
     this.analyzeBtn.disabled = true
     
     // テキストエリアをクリアして表示
@@ -215,35 +194,6 @@ class PopupUI {
     this.resultSection.classList.remove('hidden')
   }
 
-  private handleStreamingChunk(data: { chunk: string; progress?: number }): void {
-    // チャンクをテキストエリアに追加
-    this.resultTextArea.value += data.chunk
-    this.resultTextArea.scrollTop = this.resultTextArea.scrollHeight
-    
-    // プログレスバー更新
-    if (data.progress) {
-      this.progressBar.style.width = `${data.progress}%`
-      this.progressText.textContent = `AI分析中... ${data.progress}%`
-    }
-  }
-
-  private handleStreamingEnd(data: { fullText: string }): void {
-    console.log('Streaming analysis completed')
-    
-    this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
-    this.resultSection.classList.remove('hidden')
-    
-    this.showToast('分析完了', 'success')
-  }
-
-  private handleStreamingError(data: { message: string; error: string }): void {
-    console.error('Streaming analysis error:', data)
-    
-    this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
-    this.showError(`${data.message}: ${data.error}`)
-  }
 
 
 

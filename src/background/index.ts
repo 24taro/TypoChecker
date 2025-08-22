@@ -27,15 +27,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       return true
 
-    case 'START_ANALYSIS':
-      handleStartAnalysis(message.tabId)
-        .then(sendResponse)
-        .catch((error) => {
-          console.error('Analysis failed:', error)
-          sendResponse({ error: error.message })
-        })
-      return true
-      
     case 'PAGE_CONTENT':
       console.log('Page content received from tab:', sender.tab?.id)
       handlePageContent(message.data)
@@ -58,14 +49,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       return true
 
-    case 'START_STREAMING_ANALYSIS':
-      console.log('Streaming analysis requested for tab:', message.tabId)
-      handleStreamingAnalysis(message.tabId, sender)
+    case 'START_ANALYSIS':
+      console.log('Analysis requested for tab:', message.tabId)
+      handleAnalysis(message.tabId, sender)
         .then(() => {
           sendResponse({ success: true })
         })
         .catch((error) => {
-          console.error('Streaming analysis failed:', error)
+          console.error('Analysis failed:', error)
           sendResponse({ error: error.message })
         })
       return true
@@ -167,9 +158,9 @@ async function handlePageContent(data: { url: string; title: string; text: strin
   }
 }
 
-async function handleStreamingAnalysis(tabId: number, sender: chrome.runtime.MessageSender): Promise<void> {
+async function handleAnalysis(tabId: number, sender: chrome.runtime.MessageSender): Promise<void> {
   try {
-    console.log('Starting streaming analysis for tab:', tabId)
+    console.log('Starting analysis for tab:', tabId)
     
     // ページコンテンツを直接抽出（メッセージ競合を回避）
     const results = await chrome.scripting.executeScript({
@@ -193,21 +184,21 @@ async function handleStreamingAnalysis(tabId: number, sender: chrome.runtime.Mes
       textLength: pageData.text?.length || 0,
     })
     
-    // ストリーミング解析を開始
-    await processStreamingAnalysis(pageData, sender)
+    // 通常解析を開始
+    await processAnalysis(pageData, sender)
     
   } catch (error) {
-    console.error('Failed to start streaming analysis:', error)
+    console.error('Failed to start analysis:', error)
     throw error
   }
 }
 
-async function processStreamingAnalysis(
+async function processAnalysis(
   data: { url: string; title: string; text: string },
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
   try {
-    console.log('Processing streaming analysis for:', {
+    console.log('Processing analysis for:', {
       url: data.url,
       textLength: data.text?.length || 0,
     })
@@ -215,57 +206,36 @@ async function processStreamingAnalysis(
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // ストリーミング開始を通知
+    // 分析開始を通知
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_STREAM_START',
+      type: 'ANALYSIS_START',
       data: {
-        message: 'AI分析を開始しています...'
+        message: 'AI分析を実行中...'
       }
     })
 
-    // ストリーミング解析を実行
-    let fullResponse = ''
-    let chunkCount = 0
-    for await (const streamData of aiSession.analyzeTextStreaming(
-      data.text,
-      undefined, // コールバックは使わずに、for awaitで処理
-    )) {
-      chunkCount++
-      fullResponse += streamData.chunk
+    // 通常の分析を実行
+    const analysisResult = await aiSession.analyzeText(data.text)
 
-      // 進捗をPopupに送信
-      chrome.runtime.sendMessage({
-        type: 'ANALYSIS_STREAM_CHUNK',
-        data: {
-          chunk: streamData.chunk,
-          progress: streamData.isComplete ? 100 : Math.min(chunkCount * 10, 90)
-        }
-      })
-
-      if (streamData.isComplete) {
-        break
-      }
-    }
-
-    // ストリーミング完了を通知
+    // 分析完了を通知
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_STREAM_END',
+      type: 'ANALYSIS_COMPLETE',
       data: {
-        fullText: fullResponse
+        fullText: analysisResult
       }
     })
 
-    console.log('Streaming analysis completed:', {
-      textLength: fullResponse.length
+    console.log('Analysis completed:', {
+      textLength: analysisResult.length
     })
 
   } catch (error) {
-    console.error('Streaming analysis error:', error)
+    console.error('Analysis error:', error)
     
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_STREAM_ERROR',
+      type: 'ANALYSIS_ERROR',
       data: {
-        message: 'ストリーミング分析中にエラーが発生しました',
+        message: '分析中にエラーが発生しました',
         error: error instanceof Error ? error.message : 'Unknown error'
       }
     })

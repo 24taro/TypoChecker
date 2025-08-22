@@ -15,7 +15,7 @@ export class AISessionManager {
 
       const availability = await LanguageModel.availability()
       console.log('AI availability:', availability)
-      
+
       // 新しいAPIの戻り値をマッピング
       switch (availability) {
         case 'available':
@@ -43,9 +43,12 @@ export class AISessionManager {
 
     try {
       const availability = await this.checkAvailability()
-      
+
       if (availability === 'no') {
-        throw this.createError('NOT_AVAILABLE', 'Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+        throw this.createError(
+          'NOT_AVAILABLE',
+          'Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。'
+        )
       }
 
       if (availability === 'after-download') {
@@ -58,19 +61,19 @@ export class AISessionManager {
 
       console.log('Creating AI session...')
       this.session = await LanguageModel.create({
-        initialPrompts: [{
-          role: 'system',
-          content: `あなたは日本語校正の専門家です。
+        initialPrompts: [
+          {
+            role: 'system',
+            content: `あなたは日本語校正の専門家です。
 
 テキストの誤字・脱字・文法エラー・不自然な表現を見つけて、修正案を提示してください。
 
 問題が見つかった場合は、以下の形式で回答してください：
 間違い：「○○」→ 修正案：「○○」
 
-問題がない場合は「問題ありません」と答えてください。`
-        }],
-        temperature: 0.7,
-        topK: 10,
+問題がない場合は「問題ありません」と答えてください。`,
+          },
+        ],
       })
 
       console.log('AI session created successfully')
@@ -108,7 +111,7 @@ ${text}`
   }
 
   async *analyzeTextStreaming(
-    text: string, 
+    text: string,
     onChunk?: (data: { chunk: string; partialErrors: any[]; progress: number }) => void,
     options?: { signal?: AbortSignal }
   ): AsyncIterable<{ chunk: string; partialErrors: any[]; isComplete: boolean }> {
@@ -125,27 +128,27 @@ ${text}`
 
 ${text}`
       console.log('Starting streaming analysis...')
-      
+
       const stream = this.session.promptStreaming(prompt, options)
       let previousText = ''
       let chunkCount = 0
 
       for await (const chunk of stream) {
         chunkCount++
-        
+
         // Chrome AI APIのバグ対応: 各チャンクは累積的なので差分を計算
         const newText = chunk.slice(previousText.length)
         const isComplete = this.isResponseComplete(chunk)
-        
+
         // 進捗計算
         const progress = isComplete ? 100 : Math.min(10 + chunkCount * 5, 90)
-        
+
         // コールバックで通知
         if (onChunk) {
           onChunk({
             chunk: newText,
             partialErrors: [],
-            progress
+            progress,
           })
         }
 
@@ -153,7 +156,7 @@ ${text}`
         yield {
           chunk: newText,
           partialErrors: [],
-          isComplete
+          isComplete,
         }
 
         previousText = chunk
@@ -171,7 +174,6 @@ ${text}`
       throw this.createError('PROMPT_FAILED', 'ストリーミングテキスト分析に失敗しました。')
     }
   }
-
 
   async destroy(): Promise<void> {
     if (this.session) {
@@ -196,38 +198,40 @@ ${text}`
 
   async initiateModelDownload(): Promise<void> {
     console.log('Starting AI model download...')
-    
+
     // ダウンロード開始を通知
     chrome.runtime.sendMessage({
       type: 'MODEL_DOWNLOAD_START',
       data: {
-        message: 'AIモデルのダウンロードを開始しています...'
-      }
+        message: 'AIモデルのダウンロードを開始しています...',
+      },
     })
 
     try {
       const availability = await this.checkAvailability()
-      
+
       if (availability === 'downloadable') {
         // モデルのダウンロードを開始（セッション作成によってトリガーされる）
         console.log('Creating session to trigger model download...')
         const session = await LanguageModel.create({
-          initialPrompts: [{
-            role: 'system',
-            content: 'AI model initialization for TypoChecker.'
-          }]
+          initialPrompts: [
+            {
+              role: 'system',
+              content: 'AI model initialization for TypoChecker.',
+            },
+          ],
         })
-        
+
         console.log('Model download completed successfully')
         session.destroy()
-        
+
         // ダウンロード完了を通知
         chrome.runtime.sendMessage({
           type: 'MODEL_DOWNLOAD_COMPLETE',
           data: {
             message: 'AIモデルのダウンロードが完了しました！',
-            success: true
-          }
+            success: true,
+          },
         })
       } else if (availability === 'readily') {
         // すでに利用可能
@@ -235,38 +239,39 @@ ${text}`
           type: 'MODEL_DOWNLOAD_COMPLETE',
           data: {
             message: 'AIモデルは既に利用可能です',
-            success: true
-          }
+            success: true,
+          },
         })
       } else {
         throw new Error(`Model download cannot be initiated. Availability: ${availability}`)
       }
     } catch (error) {
       console.error('Model download failed:', error)
-      
+
       chrome.runtime.sendMessage({
         type: 'MODEL_DOWNLOAD_ERROR',
         data: {
           message: 'AIモデルのダウンロードに失敗しました',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
       })
-      
+
       throw error
     }
   }
 
   private isResponseComplete(text: string): boolean {
-    const openBraces = (text.match(/\{/g) || []).length
-    const closeBraces = (text.match(/\}/g) || []).length
-    const openBrackets = (text.match(/\[/g) || []).length
-    const closeBrackets = (text.match(/\]/g) || []).length
-    
-    return openBraces > 0 && closeBraces > 0 && 
-           openBraces === closeBraces && openBrackets === closeBrackets && 
-           text.includes('"errors"') && text.trim().endsWith('}')
+    // テキスト出力用の簡単な完了判定
+    const trimmed = text.trim()
+    return (
+      trimmed.length > 10 && // 最低限の長さがある
+      (trimmed.includes('問題ありません') || // 問題なしパターン
+       trimmed.includes('修正案：') || // 問題ありパターン
+       trimmed.endsWith('。') || // 文として完了
+       trimmed.endsWith('です') ||
+       trimmed.endsWith('ます'))
+    )
   }
-
 
   private createError(code: AIError['code'], message: string): AIError {
     return { code, message }
