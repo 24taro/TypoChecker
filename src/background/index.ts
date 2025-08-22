@@ -216,14 +216,12 @@ async function processStreamingAnalysis(
     await aiSession.initialize()
 
     // ストリーミング開始を通知
-    if (sender.tab?.id) {
-      chrome.tabs.sendMessage(sender.tab.id, {
-        type: 'ANALYSIS_STREAM_START',
-        data: {
-          message: 'AI分析を開始しています...'
-        }
-      })
-    }
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_STREAM_START',
+      data: {
+        message: 'AI分析を開始しています...'
+      }
+    })
 
     // ストリーミング解析を実行
     let fullResponse = ''
@@ -236,15 +234,13 @@ async function processStreamingAnalysis(
       fullResponse += streamData.chunk
 
       // 進捗をPopupに送信
-      if (sender.tab?.id) {
-        chrome.tabs.sendMessage(sender.tab.id, {
-          type: 'ANALYSIS_STREAM_CHUNK',
-          data: {
-            chunk: streamData.chunk,
-            progress: streamData.isComplete ? 100 : Math.min(chunkCount * 10, 90)
-          }
-        })
-      }
+      chrome.runtime.sendMessage({
+        type: 'ANALYSIS_STREAM_CHUNK',
+        data: {
+          chunk: streamData.chunk,
+          progress: streamData.isComplete ? 100 : Math.min(chunkCount * 10, 90)
+        }
+      })
 
       if (streamData.isComplete) {
         break
@@ -252,14 +248,12 @@ async function processStreamingAnalysis(
     }
 
     // ストリーミング完了を通知
-    if (sender.tab?.id) {
-      chrome.tabs.sendMessage(sender.tab.id, {
-        type: 'ANALYSIS_STREAM_END',
-        data: {
-          fullText: fullResponse
-        }
-      })
-    }
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_STREAM_END',
+      data: {
+        fullText: fullResponse
+      }
+    })
 
     console.log('Streaming analysis completed:', {
       textLength: fullResponse.length
@@ -268,15 +262,13 @@ async function processStreamingAnalysis(
   } catch (error) {
     console.error('Streaming analysis error:', error)
     
-    if (sender.tab?.id) {
-      chrome.tabs.sendMessage(sender.tab.id, {
-        type: 'ANALYSIS_STREAM_ERROR',
-        data: {
-          message: 'ストリーミング分析中にエラーが発生しました',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
-      })
-    }
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_STREAM_ERROR',
+      data: {
+        message: 'ストリーミング分析中にエラーが発生しました',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    })
     
     throw error
   }
