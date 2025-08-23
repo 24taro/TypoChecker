@@ -1,7 +1,92 @@
-* {
+/* Reset CSS */
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+html {
+  line-height: 1.15;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: block;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+p,
+ul,
+ol,
+dl,
+blockquote,
+pre,
+table,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  border: 0;
+}
+
+hr {
+  border: 0;
+  margin: 0;
+}
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
 }
 
 body {
@@ -353,3 +438,131 @@ footer {
     opacity: 0;
   }
 }
+
+/* チャット向けデフォルトマークダウンスタイル */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.message-content h1 { font-size: 16px; }
+.message-content h2 { font-size: 15px; }
+.message-content h3 { font-size: 14px; }
+.message-content h4 { font-size: 13px; }
+.message-content h5 { font-size: 12px; }
+.message-content h6 { font-size: 11px; }
+
+.message-content p {
+  line-height: 1.3;
+}
+
+.message-content code {
+  background: #f6f8fa;
+  border-radius: 2px;
+  padding: 0px 2px;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', 'Courier', monospace;
+  font-size: 75%;
+  color: #d73a49;
+}
+
+.message-content pre {
+  background: #f6f8fa;
+  border-radius: 3px;
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid #e1e4e8;
+}
+
+.message-content pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  color: #24292e;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.message-content ul,
+.message-content ol {
+  padding-left: 12px;
+}
+
+.message-content ul {
+  list-style: disc;
+}
+
+.message-content ol {
+  list-style: decimal;
+}
+
+.message-content ul li,
+.message-content ol li {
+  margin: 0;
+  line-height: 1.2;
+  display: list-item;
+}
+
+.message-content blockquote {
+  border-left: 2px solid #d0d7de;
+  padding: 0 6px;
+  color: #656d76;
+  background: #f6f8fa;
+  border-radius: 0 3px 3px 0;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+
+.message-content table th,
+.message-content table td {
+  border: 1px solid #d0d7de;
+  padding: 2px 6px;
+  text-align: left;
+}
+
+.message-content table th {
+  background: #f6f8fa;
+  font-weight: 600;
+}
+
+.message-content table tr:nth-child(even) {
+  background: #f6f8fa;
+}
+
+.message-content a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.message-content a:hover {
+  text-decoration: underline;
+}
+
+.message-content hr {
+  border: none;
+  border-top: 1px solid #d0d7de;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+
+/* デフォルトmarginを使用するため、追加の調整は不要 */

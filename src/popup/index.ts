@@ -1,4 +1,5 @@
 import type { TypoError, AnalysisResult, ChatMessage } from '../shared/types/messages'
+import { marked } from 'marked'
 
 class PopupUI {
   private sendBtn: HTMLButtonElement
@@ -479,13 +480,30 @@ class PopupUI {
     this.chatMessagesContainer.scrollTop = this.chatMessagesContainer.scrollHeight
   }
 
+  // === マークダウンレンダリング機能 ===
+
+  private renderMarkdown(text: string): string {
+    try {
+      return marked.parse(text) as string
+    } catch (error) {
+      console.error('Markdown rendering error:', error)
+      return text
+    }
+  }
+
   private createMessageElement(message: ChatMessage): HTMLElement {
     const messageDiv = document.createElement('div')
     messageDiv.className = `chat-message ${message.role}`
 
     const contentDiv = document.createElement('div')
     contentDiv.className = `message-content ${message.role}`
-    contentDiv.textContent = message.content
+    
+    // AIからのメッセージはマークダウンとしてレンダリング
+    if (message.role === 'assistant') {
+      contentDiv.innerHTML = this.renderMarkdown(message.content)
+    } else {
+      contentDiv.textContent = message.content
+    }
 
     const timestampDiv = document.createElement('div')
     timestampDiv.className = 'message-timestamp'
@@ -704,8 +722,12 @@ class PopupUI {
     if (messageElement) {
       const contentDiv = messageElement.querySelector('.message-content')
       if (contentDiv) {
-        // カーソルを削除して最終コンテンツを設定
-        contentDiv.innerHTML = message.content
+        // カーソルを削除して最終コンテンツをマークダウンとしてレンダリング
+        if (message.role === 'assistant') {
+          contentDiv.innerHTML = this.renderMarkdown(message.content)
+        } else {
+          contentDiv.innerHTML = message.content
+        }
 
         // チャット履歴を更新
         const index = this.chatHistory.findIndex(m => m.id === message.id)

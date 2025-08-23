@@ -259,7 +259,7 @@ ${content}
       // トークン使用状況を更新
       this.updateTokenUsage(response)
 
-      let result = response.text
+      const result = response.text
 
       // response.textが空の場合、MAX_TOKENSエラーかどうかチェック
       if (!result || result.trim().length === 0) {
