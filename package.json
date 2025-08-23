@@ -17,5 +17,8 @@
     "vite": "^5.3.5"
   },
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.15.0"
+  }
 }

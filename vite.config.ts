@@ -27,7 +27,13 @@ export default defineConfig({
           }
           return 'assets/[name][extname]'
         },
+        // すべてのコードを単一のチャンクにバンドル（Service Worker対応）
+        manualChunks: undefined,
       },
+      external: [
+        // Chrome extension APIは外部化
+        'chrome'
+      ],
     },
   },
   resolve: {
