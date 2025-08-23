@@ -1,40 +1,59 @@
-import type { TypoError, AnalysisResult } from '../shared/types/messages'
+import type { TypoError, AnalysisResult, ChatMessage } from '../shared/types/messages'
 
 class PopupUI {
-  private analyzeBtn: HTMLButtonElement
+  private sendBtn: HTMLButtonElement
+  private clearBtn: HTMLButtonElement
   private promptInput: HTMLTextAreaElement
   private progressContainer: HTMLElement
   private progressBar: HTMLElement
   private progressText: HTMLElement
-  private resultSection: HTMLElement
-  private resultTextArea: HTMLTextAreaElement
+  private chatMessagesContainer: HTMLElement
+  private emptyState: HTMLElement
   private providerNameSpan: HTMLElement
   private statusIndicator: HTMLElement
   private settingsBtn: HTMLButtonElement
   
+  private currentTabId: number | null = null
+  private chatHistory: ChatMessage[] = []
+  private isProcessing = false
+  
   constructor() {
-    this.analyzeBtn = document.getElementById('analyze-btn') as HTMLButtonElement
+    this.sendBtn = document.getElementById('send-btn') as HTMLButtonElement
+    this.clearBtn = document.getElementById('clear-chat') as HTMLButtonElement
     this.promptInput = document.getElementById('user-prompt') as HTMLTextAreaElement
     this.progressContainer = document.getElementById('progress-container') as HTMLElement
     this.progressBar = document.getElementById('progress-bar') as HTMLElement
     this.progressText = document.getElementById('progress-text') as HTMLElement
-    this.resultSection = document.getElementById('result-section') as HTMLElement
-    this.resultTextArea = document.getElementById('result-text') as HTMLTextAreaElement
+    this.chatMessagesContainer = document.getElementById('chat-messages') as HTMLElement
+    this.emptyState = document.getElementById('empty-state') as HTMLElement
     this.providerNameSpan = document.getElementById('provider-name') as HTMLElement
     this.statusIndicator = document.getElementById('status') as HTMLElement
     this.settingsBtn = document.getElementById('settings-link-btn') as HTMLButtonElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
-    this.checkAIAvailability()
+    this.initializeChat()
   }
   
   private setupEventListeners(): void {
-    this.analyzeBtn.addEventListener('click', () => this.startAnalysis())
+    this.sendBtn.addEventListener('click', () => this.sendMessage())
+    
+    this.clearBtn.addEventListener('click', () => this.clearChat())
     
     // プロンプト入力監視
     this.promptInput.addEventListener('input', () => {
-      this.updateAnalyzeButtonState()
+      this.updateSendButtonState()
+      this.adjustTextareaHeight()
+    })
+    
+    // Enterキーで送信（Shift+Enterで改行）
+    this.promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        if (!this.sendBtn.disabled) {
+          this.sendMessage()
+        }
+      }
     })
     
     this.settingsBtn.addEventListener('click', () => {
@@ -50,9 +69,14 @@ class PopupUI {
     })
   }
   
-  private updateAnalyzeButtonState(): void {
+  private updateSendButtonState(): void {
     const hasPrompt = this.promptInput.value.trim().length > 0
-    this.analyzeBtn.disabled = !hasPrompt
+    this.sendBtn.disabled = !hasPrompt || this.isProcessing
+  }
+  
+  private adjustTextareaHeight(): void {
+    this.promptInput.style.height = 'auto'
+    this.promptInput.style.height = `${Math.min(this.promptInput.scrollHeight, 120)}px`
   }
   
   private setupMessageListeners(): void {
@@ -93,7 +117,7 @@ class PopupUI {
     })
   }
   
-  private async startAnalysis(): Promise<void> {
+  private async initializeChat(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     
     if (!tab.id) {
@@ -101,21 +125,68 @@ class PopupUI {
       return
     }
     
-    const userPrompt = this.promptInput.value.trim()
-    if (!userPrompt) {
-      this.showError('プロンプトを入力してください')
+    this.currentTabId = tab.id
+    
+    // AI可用性をチェック
+    await this.checkAIAvailability()
+    
+    // チャット履歴を読み込み
+    await this.loadChatHistory()
+  }
+  
+  private async sendMessage(): Promise<void> {
+    if (!this.currentTabId) {
+      this.showError('タブ情報の取得に失敗しました')
       return
     }
     
-    this.analyzeBtn.disabled = true
+    const userPrompt = this.promptInput.value.trim()
+    if (!userPrompt) {
+      return
+    }
+    
+    this.isProcessing = true
+    this.updateSendButtonState()
+    
+    // ユーザーメッセージを追加
+    const userMessage: ChatMessage = {
+      id: this.generateMessageId(),
+      role: 'user',
+      content: userPrompt,
+      timestamp: Date.now(),
+      tabId: this.currentTabId || undefined
+    }
+    
+    this.addMessageToChat(userMessage)
+    await this.saveChatMessage(userMessage)
+    
+    // 入力をクリア
+    this.promptInput.value = ''
+    this.adjustTextareaHeight()
+    
+    // プログレス表示
     this.progressContainer.classList.remove('hidden')
     
-    // 分析を実行（HTML全体を取得）
+    // 分析を実行
     chrome.runtime.sendMessage({
       type: 'START_ANALYSIS',
-      tabId: tab.id,
+      tabId: this.currentTabId,
       userPrompt,
     })
+  }
+  
+  private async clearChat(): Promise<void> {
+    if (!this.currentTabId) return
+    
+    if (confirm('チャット履歴をクリアしますか？')) {
+      this.chatHistory = []
+      await this.clearChatStorage()
+      this.renderChatMessages()
+    }
+  }
+  
+  private generateMessageId(): string {
+    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
   
   private updateProgress(current: number, total: number): void {
@@ -124,14 +195,14 @@ class PopupUI {
     this.progressText.textContent = `${current}/${total} 処理中...`
   }
 
-  private handleAnalysisComplete(data: { 
+  private async handleAnalysisComplete(data: { 
     fullText: string; 
     provider?: string; 
     tokenInfo?: { used: number; quota: number; remaining: number } 
-  }): void {
+  }): Promise<void> {
     this.progressContainer.classList.add('hidden')
-    this.updateAnalyzeButtonState()
-    this.resultSection.classList.remove('hidden')
+    this.isProcessing = false
+    this.updateSendButtonState()
     
     let resultText = ''
     
@@ -150,19 +221,26 @@ class PopupUI {
       }
     }
     
-    this.resultTextArea.value = resultText
+    // アシスタントメッセージを追加
+    const assistantMessage: ChatMessage = {
+      id: this.generateMessageId(),
+      role: 'assistant',
+      content: resultText,
+      timestamp: Date.now(),
+      tabId: this.currentTabId || undefined
+    }
+    
+    this.addMessageToChat(assistantMessage)
+    await this.saveChatMessage(assistantMessage)
+    
     this.showToast('処理完了', 'success')
   }
   
   private showError(message: string): void {
     console.error(message)
     this.showToast(message, 'error')
-  }
-  
-  private showMessage(message: string): void {
-    this.resultSection.classList.remove('hidden')
-    this.resultTextArea.value = message
-    this.showToast(message)
+    this.isProcessing = false
+    this.updateSendButtonState()
   }
   
   private showToast(message: string, type = 'success'): void {
@@ -178,7 +256,8 @@ class PopupUI {
   
   private async initiateModelDownload(): Promise<void> {
     try {
-      this.analyzeBtn.disabled = true
+      this.isProcessing = true
+      this.updateSendButtonState()
       this.progressContainer.classList.remove('hidden')
       this.progressText.textContent = 'AIモデルのダウンロードを準備中...'
       this.progressBar.style.width = '10%'
@@ -195,7 +274,8 @@ class PopupUI {
     this.progressContainer.classList.remove('hidden')
     this.progressText.textContent = message
     this.progressBar.style.width = '20%'
-    this.analyzeBtn.disabled = true
+    this.isProcessing = true
+    this.updateSendButtonState()
   }
 
   private handleModelDownloadProgress(data: { message: string; progress?: number }): void {
@@ -209,7 +289,8 @@ class PopupUI {
   private handleModelDownloadComplete(data: { message: string; success: boolean }): void {
     console.log('Model download completed:', data)
     this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
+    this.isProcessing = false
+    this.updateSendButtonState()
     
     if (data.success) {
       this.showToast(data.message, 'success')
@@ -223,7 +304,8 @@ class PopupUI {
   private handleModelDownloadError(data: { message: string; error: string }): void {
     console.error('Model download error:', data)
     this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
+    this.isProcessing = false
+    this.updateSendButtonState()
     this.showError(`${data.message}: ${data.error}`)
   }
 
@@ -232,11 +314,8 @@ class PopupUI {
     this.progressContainer.classList.remove('hidden')
     this.progressText.textContent = message
     this.progressBar.style.width = '50%'
-    this.analyzeBtn.disabled = true
-    
-    // テキストエリアをクリアして表示
-    this.resultTextArea.value = ''
-    this.resultSection.classList.remove('hidden')
+    this.isProcessing = true
+    this.updateSendButtonState()
   }
 
 
@@ -249,20 +328,25 @@ class PopupUI {
   }
   
   private exportResults(): void {
-    const text = this.resultTextArea.value
-    if (!text.trim()) {
-      this.showError('エクスポートする結果がありません')
+    if (!this.chatHistory.length) {
+      this.showError('エクスポートするチャット履歴がありません')
       return
     }
     
-    const blob = new Blob([text], { type: 'text/plain' })
+    const chatText = this.chatHistory.map(msg => {
+      const timestamp = new Date(msg.timestamp).toLocaleString('ja-JP')
+      const role = msg.role === 'user' ? 'ユーザー' : 'AI'
+      return `[${timestamp}] ${role}:\n${msg.content}\n`
+    }).join('\n')
+    
+    const blob = new Blob([chatText], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `typochecker-result-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
+    a.download = `chat-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
     a.click()
     URL.revokeObjectURL(url)
-    this.showToast('結果をエクスポートしました')
+    this.showToast('チャット履歴をエクスポートしました')
   }
 
   private async checkAIAvailability(): Promise<void> {
@@ -272,7 +356,7 @@ class PopupUI {
       if (response.error) {
         this.updateProviderStatus('エラー', 'error')
         this.showError(`AI利用不可: ${response.error}`)
-        this.analyzeBtn.disabled = true
+        this.sendBtn.disabled = true
         return
       }
 
@@ -294,15 +378,14 @@ class PopupUI {
       switch (response.availability) {
         case 'no':
           this.showError('AI APIは利用できません。設定を確認してください。')
-          this.analyzeBtn.disabled = true
           break
         
         case 'after-download':
-          this.showMessage('AIモデルのダウンロード中です。しばらくお待ちください。')
+          this.showToast('AIモデルのダウンロード中です。しばらくお待ちください。', 'warning')
           break
 
         case 'downloadable':
-          this.showMessage('AIモデルをダウンロードします。')
+          this.showToast('AIモデルをダウンロードします。')
           this.initiateModelDownload()
           break
         
@@ -326,7 +409,8 @@ class PopupUI {
 
   private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
     this.progressContainer.classList.add('hidden')
-    this.analyzeBtn.disabled = false
+    this.isProcessing = false
+    this.updateSendButtonState()
     
     let message = 'エラーが発生しました'
     
@@ -351,6 +435,100 @@ class PopupUI {
     }
     
     this.showError(message)
+  }
+
+  // === チャット履歴管理メソッド ===
+
+  private addMessageToChat(message: ChatMessage): void {
+    this.chatHistory.push(message)
+    this.renderChatMessages()
+  }
+
+  private renderChatMessages(): void {
+    this.chatMessagesContainer.innerHTML = ''
+    
+    if (this.chatHistory.length === 0) {
+      this.chatMessagesContainer.appendChild(this.emptyState)
+      return
+    }
+
+    this.chatHistory.forEach(message => {
+      const messageElement = this.createMessageElement(message)
+      this.chatMessagesContainer.appendChild(messageElement)
+    })
+
+    // 最新のメッセージまでスクロール
+    this.chatMessagesContainer.scrollTop = this.chatMessagesContainer.scrollHeight
+  }
+
+  private createMessageElement(message: ChatMessage): HTMLElement {
+    const messageDiv = document.createElement('div')
+    messageDiv.className = `chat-message ${message.role}`
+
+    const contentDiv = document.createElement('div')
+    contentDiv.className = `message-content ${message.role}`
+    contentDiv.textContent = message.content
+
+    const timestampDiv = document.createElement('div')
+    timestampDiv.className = 'message-timestamp'
+    timestampDiv.textContent = new Date(message.timestamp).toLocaleString('ja-JP', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+
+    messageDiv.appendChild(contentDiv)
+    messageDiv.appendChild(timestampDiv)
+
+    return messageDiv
+  }
+
+  // === Chrome Storage API メソッド ===
+
+  private async saveChatMessage(message: ChatMessage): Promise<void> {
+    if (!this.currentTabId) return
+
+    try {
+      const key = `chat_${this.currentTabId}`
+      const result = await chrome.storage.local.get([key])
+      const messages: ChatMessage[] = result[key] || []
+      
+      messages.push(message)
+      
+      // 最大履歴数を制限（100件まで）
+      const limitedMessages = messages.slice(-100)
+      
+      await chrome.storage.local.set({ [key]: limitedMessages })
+    } catch (error) {
+      console.error('Failed to save chat message:', error)
+    }
+  }
+
+  private async loadChatHistory(): Promise<void> {
+    if (!this.currentTabId) return
+
+    try {
+      const key = `chat_${this.currentTabId}`
+      const result = await chrome.storage.local.get([key])
+      this.chatHistory = result[key] || []
+      this.renderChatMessages()
+    } catch (error) {
+      console.error('Failed to load chat history:', error)
+      this.chatHistory = []
+      this.renderChatMessages()
+    }
+  }
+
+  private async clearChatStorage(): Promise<void> {
+    if (!this.currentTabId) return
+
+    try {
+      const key = `chat_${this.currentTabId}`
+      await chrome.storage.local.remove([key])
+    } catch (error) {
+      console.error('Failed to clear chat storage:', error)
+    }
   }
 }
 

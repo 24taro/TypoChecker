@@ -22,25 +22,25 @@
     </header>
     
     <main>
-      <section class="prompt-section">
-        <label for="user-prompt" class="prompt-label">AIへの指示を入力してください</label>
-        <textarea id="user-prompt" class="prompt-input" rows="4" placeholder="例：このページの内容を要約してください&#10;例：重要なポイントを箇条書きにしてください&#10;例：見出し構造を分析してください"></textarea>
-        <p class="content-info">※ ページのHTML全体を処理対象として送信します</p>
-      </section>
-      
-      <section class="analyze-section">
-        <button id="analyze-btn" class="primary-btn" disabled>
-          AIで処理
-        </button>
+      <section class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="empty-state" id="empty-state">
+            <p>ページについて質問してください</p>
+            <small>※ ページのHTML全体を処理対象として送信します</small>
+          </div>
+        </div>
+        
         <div class="progress-container hidden" id="progress-container">
           <div class="progress-bar" id="progress-bar"></div>
-          <span class="progress-text" id="progress-text">0/0 チャンク処理中...</span>
+          <span class="progress-text" id="progress-text">処理中...</span>
         </div>
-      </section>
-      
-      <section class="result-section hidden" id="result-section">
-        <div class="result-container">
-          <textarea id="result-text" readonly placeholder="分析結果がここに表示されます..."></textarea>
+        
+        <div class="chat-input-container">
+          <textarea id="user-prompt" class="chat-input" rows="2" placeholder="ページについて質問してください..."></textarea>
+          <div class="chat-actions">
+            <button id="clear-chat" class="clear-btn" title="チャット履歴をクリア">🗑️</button>
+            <button id="send-btn" class="send-btn" disabled>送信</button>
+          </div>
         </div>
       </section>
     </main>

@@ -137,6 +137,43 @@ export interface AnalysisStreamErrorMessage {
   }
 }
 
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  tabId?: number
+}
+
+export interface SaveChatMessage {
+  type: 'SAVE_CHAT'
+  data: {
+    tabId: number
+    message: ChatMessage
+  }
+}
+
+export interface LoadChatHistoryMessage {
+  type: 'LOAD_CHAT_HISTORY'
+  data: {
+    tabId: number
+  }
+}
+
+export interface ChatHistoryResponse {
+  type: 'CHAT_HISTORY_RESPONSE'
+  data: {
+    messages: ChatMessage[]
+  }
+}
+
+export interface ClearChatMessage {
+  type: 'CLEAR_CHAT'
+  data: {
+    tabId: number
+  }
+}
+
 export type Message =
   | ExtractTextMessage
   | AnalysisCompleteMessage
@@ -153,3 +190,7 @@ export type Message =
   | AnalysisStreamChunkMessage
   | AnalysisStreamEndMessage
   | AnalysisStreamErrorMessage
+  | SaveChatMessage
+  | LoadChatHistoryMessage
+  | ChatHistoryResponse
+  | ClearChatMessage
