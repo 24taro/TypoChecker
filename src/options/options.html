@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page AI Assistant - 設定</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="options-container">
+    <header>
+      <h1>Page AI Assistant 設定</h1>
+      <p>AIプロバイダーとモデルを設定してください</p>
+    </header>
+
+    <main>
+      <div class="form-section">
+        <h3>AIプロバイダー</h3>
+        <div class="provider-options">
+          <label class="provider-option">
+            <input type="radio" name="provider" value="gemini-api" id="provider-gemini">
+            <div class="provider-card">
+              <h3>Google Gemini API</h3>
+              <p>Google AI Studio APIキーを使用（推奨）</p>
+              <ul class="provider-features">
+                <li>最新のGemini 2.5モデル</li>
+                <li>大容量テキスト対応</li>
+                <li>高品質な出力</li>
+              </ul>
+            </div>
+          </label>
+
+          <label class="provider-option">
+            <input type="radio" name="provider" value="chrome-nano" id="provider-chrome">
+            <div class="provider-card">
+              <h3>Chrome Built-in AI</h3>
+              <p>Chrome内蔵のローカルAI（Gemini Nano）</p>
+              <ul class="provider-features">
+                <li>インターネット接続不要</li>
+                <li>プライバシー保護</li>
+                <li>無料</li>
+              </ul>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-section gemini-settings">
+        <h3>Gemini API設定</h3>
+        
+        <div class="form-group">
+          <label for="api-key">API キー</label>
+          <div class="api-key-input-group">
+            <input type="password" id="api-key" placeholder="Google AI Studio でAPIキーを取得">
+            <button type="button" id="toggle-api-key" class="toggle-btn">
+              <span class="show-text">表示</span>
+              <span class="hide-text">非表示</span>
+            </button>
+          </div>
+          <p class="form-help">
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">
+              Google AI Studio でAPIキーを取得 ↗
+            </a>
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label for="gemini-model">モデル</label>
+          <select id="gemini-model">
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash（高速・低コスト）</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro（高品質・複雑なタスク）</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="fallback-nano">
+            <span>APIエラー時にChrome内蔵AIにフォールバック</span>
+          </label>
+        </div>
+      </div>
+      
+      <div class="form-section">
+        <h3>処理内容の設定</h3>
+        
+        <div class="form-group">
+          <label>送信する情報の種類</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="content-level" value="text-only">
+              <span class="radio-info">
+                <span class="radio-name">構造化テキスト（Markdown）</span>
+                <span class="radio-desc">重要度を加味してマークダウン形式に変換 (最小サイズ、高品質)</span>
+              </span>
+            </label>
+            
+            <label class="radio-label">
+              <input type="radio" name="content-level" value="html-only">
+              <span class="radio-info">
+                <span class="radio-name">HTMLのみ</span>
+                <span class="radio-desc">HTML構造を含む（CSS・JavaScriptは除外）</span>
+              </span>
+            </label>
+            
+            <label class="radio-label">
+              <input type="radio" name="content-level" value="html-css">
+              <span class="radio-info">
+                <span class="radio-name">HTML + CSS</span>
+                <span class="radio-desc">HTML構造とスタイル情報を含む（推奨設定）</span>
+              </span>
+            </label>
+            
+            <label class="radio-label">
+              <input type="radio" name="content-level" value="html-css-js">
+              <span class="radio-info">
+                <span class="radio-name">HTML + CSS + JavaScript</span>
+                <span class="radio-desc">全ての情報を含む（最大サイズ、高精度分析）</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="test-section">
+          <button type="button" id="test-connection" class="test-btn" disabled>
+            接続テスト
+          </button>
+          <div id="test-result" class="test-result"></div>
+        </div>
+      </div>
+    </main>
+
+    <div class="actions">
+      <button type="button" id="save-settings" class="btn btn-primary" disabled>
+        設定を保存
+      </button>
+      <button type="button" id="reset-settings" class="btn btn-secondary">
+        デフォルトに戻す
+      </button>
+    </div>
+    <div id="save-status" class="status-message"></div>
+  </div>
+
+  <script type="module" src="options.ts"></script>
+</body>
+</html>

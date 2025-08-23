@@ -24,14 +24,30 @@ header {
   padding: 16px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 header h1 {
   font-size: 18px;
   font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.header-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.provider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-name {
+  font-size: 12px;
+  opacity: 0.9;
+  font-weight: 400;
 }
 
 .status-indicator {
@@ -39,6 +55,29 @@ header h1 {
   height: 8px;
   border-radius: 50%;
   background: #28a745;
+}
+
+.status-indicator.warning {
+  background: #ffc107;
+}
+
+.status-indicator.error {
+  background: #dc3545;
+}
+
+.settings-link-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.3s;
+}
+
+.settings-link-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 main {

@@ -11,6 +11,7 @@ export default defineConfig({
         background: resolve(__dirname, 'src/background/index.ts'),
         content: resolve(__dirname, 'src/content/index.ts'),
         popup: resolve(__dirname, 'src/popup/index.html'),
+        options: resolve(__dirname, 'src/options/options.html'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
@@ -19,6 +20,9 @@ export default defineConfig({
         chunkFileNames: '[name]-[hash].js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith('.css')) {
+            if (assetInfo.name.includes('options')) {
+              return 'options/styles[extname]'
+            }
             return 'popup/styles[extname]'
           }
           return 'assets/[name][extname]'
@@ -45,9 +49,15 @@ export default defineConfig({
           copyFileSync('public/icons/icon-128.png', 'dist/icons/icon-128.png')
           // HTMLファイルを正しい場所にコピー
           mkdirSync('dist/popup', { recursive: true })
+          mkdirSync('dist/options', { recursive: true })
           if (existsSync('dist/src/popup/index.html')) {
             copyFileSync('dist/src/popup/index.html', 'dist/popup/index.html')
-            // 不要なディレクトリを削除
+          }
+          if (existsSync('dist/src/options/options.html')) {
+            copyFileSync('dist/src/options/options.html', 'dist/options/options.html')
+          }
+          // 不要なディレクトリを削除
+          if (existsSync('dist/src')) {
             rmSync('dist/src', { recursive: true, force: true })
           }
           console.log('Files copied successfully')

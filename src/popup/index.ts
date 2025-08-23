@@ -8,6 +8,9 @@ class PopupUI {
   private progressText: HTMLElement
   private resultSection: HTMLElement
   private resultTextArea: HTMLTextAreaElement
+  private providerNameSpan: HTMLElement
+  private statusIndicator: HTMLElement
+  private settingsBtn: HTMLButtonElement
   
   constructor() {
     this.analyzeBtn = document.getElementById('analyze-btn') as HTMLButtonElement
@@ -17,6 +20,9 @@ class PopupUI {
     this.progressText = document.getElementById('progress-text') as HTMLElement
     this.resultSection = document.getElementById('result-section') as HTMLElement
     this.resultTextArea = document.getElementById('result-text') as HTMLTextAreaElement
+    this.providerNameSpan = document.getElementById('provider-name') as HTMLElement
+    this.statusIndicator = document.getElementById('status') as HTMLElement
+    this.settingsBtn = document.getElementById('settings-link-btn') as HTMLButtonElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
@@ -29,6 +35,10 @@ class PopupUI {
     // プロンプト入力監視
     this.promptInput.addEventListener('input', () => {
       this.updateAnalyzeButtonState()
+    })
+    
+    this.settingsBtn.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage()
     })
     
     document.getElementById('export-btn')?.addEventListener('click', () => {
@@ -114,17 +124,33 @@ class PopupUI {
     this.progressText.textContent = `${current}/${total} 処理中...`
   }
 
-  private handleAnalysisComplete(data: { fullText: string }): void {
+  private handleAnalysisComplete(data: { 
+    fullText: string; 
+    provider?: string; 
+    tokenInfo?: { used: number; quota: number; remaining: number } 
+  }): void {
     this.progressContainer.classList.add('hidden')
     this.updateAnalyzeButtonState()
     this.resultSection.classList.remove('hidden')
     
+    let resultText = ''
+    
     if (!data.fullText.trim()) {
-      this.resultTextArea.value = '処理結果がありませんでした。'
+      resultText = '処理結果がありませんでした。'
     } else {
-      this.resultTextArea.value = data.fullText
+      resultText = data.fullText
     }
     
+    // プロバイダー情報を結果に追加
+    if (data.provider) {
+      resultText += `\n\n--- 処理情報 ---\n使用AI: ${data.provider}`
+      
+      if (data.tokenInfo) {
+        resultText += `\nトークン使用量: ${data.tokenInfo.used}/${data.tokenInfo.quota} (残り: ${data.tokenInfo.remaining})`
+      }
+    }
+    
+    this.resultTextArea.value = resultText
     this.showToast('処理完了', 'success')
   }
   
@@ -244,14 +270,30 @@ class PopupUI {
       const response = await chrome.runtime.sendMessage({ type: 'CHECK_AI_AVAILABILITY' })
       
       if (response.error) {
+        this.updateProviderStatus('エラー', 'error')
         this.showError(`AI利用不可: ${response.error}`)
         this.analyzeBtn.disabled = true
         return
       }
 
+      const details = response.details
+      if (details) {
+        // プライマリープロバイダーの状態を表示
+        if (details.primary) {
+          this.updateProviderStatus(details.primaryProvider, 'success')
+        } else {
+          // フォールバックプロバイダーがある場合
+          if (details.fallback) {
+            this.updateProviderStatus(`${details.fallbackProvider} (fallback)`, 'warning')
+          } else {
+            this.updateProviderStatus('利用不可', 'error')
+          }
+        }
+      }
+
       switch (response.availability) {
         case 'no':
-          this.showError('Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+          this.showError('AI APIは利用できません。設定を確認してください。')
           this.analyzeBtn.disabled = true
           break
         
@@ -265,13 +307,21 @@ class PopupUI {
           break
         
         case 'readily':
-          console.log('Chrome AI API is ready')
+          console.log('AI API is ready')
           break
       }
     } catch (error) {
       console.error('Failed to check AI availability:', error)
+      this.updateProviderStatus('接続エラー', 'error')
       this.showError('AI APIの確認に失敗しました')
     }
+  }
+
+  private updateProviderStatus(providerName: string, status: 'success' | 'warning' | 'error'): void {
+    this.providerNameSpan.textContent = providerName
+    
+    // ステータスインジケーターのクラスを更新
+    this.statusIndicator.className = `status-indicator ${status}`
   }
 
   private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
