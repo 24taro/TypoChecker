@@ -16,6 +16,8 @@ class PopupUI {
   private currentTabId: number | null = null
   private chatHistory: ChatMessage[] = []
   private isProcessing = false
+  private streamingMessageId: string | null = null
+  private streamingContent = ''
   
   constructor() {
     this.sendBtn = document.getElementById('send-btn') as HTMLButtonElement
@@ -104,6 +106,22 @@ class PopupUI {
 
         case 'ANALYSIS_START':
           this.handleAnalysisStart(message.data.message)
+          break
+
+        case 'ANALYSIS_STREAM_START':
+          this.handleStreamStart(message.data.message)
+          break
+
+        case 'ANALYSIS_STREAM_CHUNK':
+          this.handleStreamChunk(message.data.chunk)
+          break
+
+        case 'ANALYSIS_STREAM_END':
+          this.handleStreamEnd(message.data)
+          break
+
+        case 'ANALYSIS_STREAM_ERROR':
+          this.handleStreamError(message.data)
           break
 
         case 'ANALYSIS_COMPLETE':
@@ -528,6 +546,190 @@ class PopupUI {
       await chrome.storage.local.remove([key])
     } catch (error) {
       console.error('Failed to clear chat storage:', error)
+    }
+  }
+
+  // === ストリーミング処理メソッド ===
+
+  private handleStreamStart(message: string): void {
+    console.log('Stream started:', message)
+    this.progressContainer.classList.remove('hidden')
+    this.progressText.textContent = message
+    this.progressBar.style.width = '50%'
+    this.isProcessing = true
+    this.updateSendButtonState()
+
+    // ストリーミング用の一時メッセージを作成
+    this.streamingMessageId = this.generateMessageId()
+    this.streamingContent = ''
+
+    const tempMessage: ChatMessage = {
+      id: this.streamingMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      tabId: this.currentTabId || undefined
+    }
+
+    this.addStreamingMessageToChat(tempMessage)
+  }
+
+  private handleStreamChunk(chunk: string): void {
+    if (!this.streamingMessageId) return
+
+    this.streamingContent += chunk
+    this.updateStreamingMessage(this.streamingContent)
+  }
+
+  private async handleStreamEnd(data: {
+    fullText: string
+    provider?: string
+    tokenInfo?: { used: number; quota: number; remaining: number }
+  }): Promise<void> {
+    this.progressContainer.classList.add('hidden')
+    this.isProcessing = false
+    this.updateSendButtonState()
+
+    if (!this.streamingMessageId) return
+
+    let resultText = data.fullText || this.streamingContent
+
+    // プロバイダー情報を結果に追加
+    if (data.provider) {
+      resultText += `\n\n--- 処理情報 ---\n使用AI: ${data.provider}`
+
+      if (data.tokenInfo) {
+        resultText += `\nトークン使用量: ${data.tokenInfo.used}/${data.tokenInfo.quota} (残り: ${data.tokenInfo.remaining})`
+      }
+    }
+
+    // 最終メッセージとしてチャット履歴に保存
+    const finalMessage: ChatMessage = {
+      id: this.streamingMessageId,
+      role: 'assistant',
+      content: resultText,
+      timestamp: Date.now(),
+      tabId: this.currentTabId || undefined
+    }
+
+    this.finalizeStreamingMessage(finalMessage)
+    await this.saveChatMessage(finalMessage)
+
+    // ストリーミング状態をリセット
+    this.streamingMessageId = null
+    this.streamingContent = ''
+
+    this.showToast('処理完了', 'success')
+  }
+
+  private handleStreamError(data: { message: string; error: string }): void {
+    console.error('Stream error:', data)
+    this.progressContainer.classList.add('hidden')
+    this.isProcessing = false
+    this.updateSendButtonState()
+
+    // ストリーミングメッセージを削除
+    if (this.streamingMessageId) {
+      this.removeStreamingMessage(this.streamingMessageId)
+      this.streamingMessageId = null
+      this.streamingContent = ''
+    }
+
+    this.showError(`${data.message}: ${data.error}`)
+  }
+
+  private addStreamingMessageToChat(message: ChatMessage): void {
+    const messageElement = this.createStreamingMessageElement(message)
+    this.chatMessagesContainer.appendChild(messageElement)
+    
+    // Empty stateを非表示
+    this.emptyState.style.display = 'none'
+
+    // 最新のメッセージまでスクロール
+    this.chatMessagesContainer.scrollTop = this.chatMessagesContainer.scrollHeight
+  }
+
+  private createStreamingMessageElement(message: ChatMessage): HTMLElement {
+    const messageDiv = document.createElement('div')
+    messageDiv.className = `chat-message ${message.role}`
+    messageDiv.setAttribute('data-message-id', message.id)
+
+    const contentDiv = document.createElement('div')
+    contentDiv.className = `message-content ${message.role}`
+    contentDiv.innerHTML = message.content
+
+    // タイピングカーソルを追加
+    const cursorSpan = document.createElement('span')
+    cursorSpan.className = 'typing-cursor'
+    cursorSpan.textContent = '|'
+    contentDiv.appendChild(cursorSpan)
+
+    const timestampDiv = document.createElement('div')
+    timestampDiv.className = 'message-timestamp'
+    timestampDiv.textContent = new Date(message.timestamp).toLocaleString('ja-JP', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+
+    messageDiv.appendChild(contentDiv)
+    messageDiv.appendChild(timestampDiv)
+
+    return messageDiv
+  }
+
+  private updateStreamingMessage(content: string): void {
+    if (!this.streamingMessageId) return
+
+    const messageElement = this.chatMessagesContainer.querySelector(`[data-message-id="${this.streamingMessageId}"]`)
+    if (messageElement) {
+      const contentDiv = messageElement.querySelector('.message-content')
+      if (contentDiv) {
+        // カーソルを保持してコンテンツを更新
+        const cursorSpan = contentDiv.querySelector('.typing-cursor')
+        contentDiv.innerHTML = content
+        if (cursorSpan) {
+          contentDiv.appendChild(cursorSpan)
+        }
+
+        // 最新のメッセージまでスクロール
+        this.chatMessagesContainer.scrollTop = this.chatMessagesContainer.scrollHeight
+      }
+    }
+  }
+
+  private finalizeStreamingMessage(message: ChatMessage): void {
+    const messageElement = this.chatMessagesContainer.querySelector(`[data-message-id="${message.id}"]`)
+    if (messageElement) {
+      const contentDiv = messageElement.querySelector('.message-content')
+      if (contentDiv) {
+        // カーソルを削除して最終コンテンツを設定
+        contentDiv.innerHTML = message.content
+
+        // チャット履歴を更新
+        const index = this.chatHistory.findIndex(m => m.id === message.id)
+        if (index >= 0) {
+          this.chatHistory[index] = message
+        } else {
+          this.chatHistory.push(message)
+        }
+      }
+    }
+  }
+
+  private removeStreamingMessage(messageId: string): void {
+    const messageElement = this.chatMessagesContainer.querySelector(`[data-message-id="${messageId}"]`)
+    if (messageElement) {
+      messageElement.remove()
+    }
+
+    // チャット履歴からも削除
+    this.chatHistory = this.chatHistory.filter(m => m.id !== messageId)
+
+    // メッセージがない場合はempty stateを表示
+    if (this.chatHistory.length === 0) {
+      this.emptyState.style.display = 'block'
     }
   }
 }

@@ -335,3 +335,21 @@ footer {
   color: #666;
   font-size: 14px;
 }
+
+/* ストリーミング用タイピングカーソル */
+.typing-cursor {
+  display: inline-block;
+  animation: blink 1s infinite;
+  color: #667eea;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}

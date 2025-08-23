@@ -1,6 +1,7 @@
 import { AIManager } from './ai/ai-manager'
 import type { PageContentMessage, Message } from '../shared/types/messages'
 import type { ContentLevel } from '../shared/types/settings'
+import type { TokenInfo } from './ai/ai-provider'
 
 console.log('Page AI Assistant Service Worker started')
 
@@ -486,31 +487,61 @@ async function processAnalysis(
       throw new Error(`ページのコンテンツが大きすぎるため処理できません。\n元サイズ: ${originalSizeMB}MB → 処理後: ${sizeMB}MB\n推奨最大サイズ: ${maxSizeMB}MB\n\nより小さなページでお試しください。`)
     }
 
-    // 分析開始を通知
+    // ストリーミング開始を通知
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_START',
+      type: 'ANALYSIS_STREAM_START',
       data: {
         message: 'AI処理を実行中...'
       }
     })
 
-    // AI処理を実行
-    const analysisResult = await aiManager.analyzeContent(userPrompt, processedContent)
-
-    // 分析完了を通知
-    chrome.runtime.sendMessage({
-      type: 'ANALYSIS_COMPLETE',
-      data: {
-        fullText: analysisResult.result,
-        provider: analysisResult.provider,
-        tokenInfo: analysisResult.tokenInfo
+    // AI処理をストリーミングで実行
+    let providerName = 'Unknown'
+    let fullAnalysisResult = ''
+    let finalTokenInfo: TokenInfo | undefined = undefined
+    
+    await aiManager.analyzeContentStream(userPrompt, processedContent, {
+      onChunk: (chunk) => {
+        // チャンクを受信したらポップアップに送信
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_CHUNK',
+          data: {
+            chunk: chunk.text
+          }
+        })
+        fullAnalysisResult += chunk.text
+      },
+      onComplete: (fullText, tokenInfo) => {
+        fullAnalysisResult = fullText
+        finalTokenInfo = tokenInfo
+        providerName = 'AI Provider' // プロバイダー名を取得する方法を後で実装
+        
+        // 完了時に最終結果を送信
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_END',
+          data: {
+            fullText,
+            provider: providerName,
+            tokenInfo
+          }
+        })
+      },
+      onError: (error) => {
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_ERROR',
+          data: {
+            message: error.message,
+            error: error.code || 'UNKNOWN_ERROR'
+          }
+        })
+        throw error
       }
     })
-
+    
     console.log('Analysis completed:', {
-      provider: analysisResult.provider,
-      resultLength: analysisResult.result.length,
-      tokenInfo: analysisResult.tokenInfo
+      provider: providerName,
+      resultLength: fullAnalysisResult.length,
+      tokenInfo: finalTokenInfo
     })
 
   } catch (error) {

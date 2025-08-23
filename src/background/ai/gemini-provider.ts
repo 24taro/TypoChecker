@@ -1,6 +1,12 @@
 import { GoogleGenAI } from '@google/genai'
 import type { GeminiModel } from '../../shared/types/settings'
-import { BaseAIProvider, type TokenInfo, type AIProviderError } from './ai-provider'
+import {
+  BaseAIProvider,
+  type TokenInfo,
+  type AIProviderError,
+  type StreamOptions,
+  type StreamChunk,
+} from './ai-provider'
 
 export class GeminiProvider extends BaseAIProvider {
   private ai: GoogleGenAI
@@ -110,6 +116,43 @@ export class GeminiProvider extends BaseAIProvider {
     }
   }
 
+  async analyzeContentStream(
+    prompt: string,
+    content: string,
+    options?: StreamOptions
+  ): Promise<void> {
+    const contentSize = new Blob([content]).size
+
+    try {
+      if (this.shouldUseFileAPI(content, contentSize)) {
+        await this.analyzeWithFileAPIStream(prompt, content, options)
+      } else {
+        await this.analyzeWithDirectContentStream(prompt, content, options)
+      }
+    } catch (error) {
+      if (options?.onError) {
+        if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+          options.onError(error as AIProviderError)
+        } else if (error && typeof error === 'object' && 'status' in error) {
+          const apiError = error as any
+          const errorMessage = this.getSDKErrorMessage(apiError)
+          options.onError(
+            this.createError(`GEMINI_SDK_ERROR_${apiError.status}`, errorMessage, apiError.message)
+          )
+        } else {
+          options.onError(
+            this.createError(
+              'GEMINI_UNKNOWN_ERROR',
+              '不明なエラーが発生しました',
+              error instanceof Error ? error.message : 'Unknown error'
+            )
+          )
+        }
+      }
+      throw error
+    }
+  }
+
   private shouldUseFileAPI(content: string, contentSize: number): boolean {
     return contentSize > 100_000 // 100KB以上でFile API使用
   }
@@ -134,7 +177,7 @@ ${content}
         temperature: 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 32768,
         candidateCount: 1,
       },
     })
@@ -168,7 +211,6 @@ ${content}
         mimeType: mimeType,
       },
     })
-
 
     try {
       // ファイルがACTIVE状態になるまで待機
@@ -209,7 +251,7 @@ ${content}
           temperature: 0.7,
           topK: 40,
           topP: 0.95,
-          maxOutputTokens: 8192,
+          maxOutputTokens: 32768,
           candidateCount: 1,
         },
       })
@@ -376,49 +418,6 @@ ${content}
     this.lastTokenUsage = null
   }
 
-  async *analyzeContentStream(prompt: string, content: string): AsyncIterable<string> {
-    await this.ensureInitialized()
-
-    try {
-      const structuredPrompt = `ユーザーリクエスト:
-${prompt}
-
-対象コンテンツ:
-${content}
-
-上記のコンテンツに対してユーザーリクエストを実行してください。`
-
-      const response = await this.ai.models.generateContentStream({
-        model: this.getModelName(this.modelName),
-        contents: structuredPrompt,
-        config: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 8192,
-          candidateCount: 1,
-        },
-      })
-
-      for await (const chunk of response) {
-        const text = chunk.text
-        if (text) {
-          yield text
-        }
-      }
-    } catch (error) {
-      if (error && typeof error === 'object' && 'status' in error) {
-        const apiError = error as any
-        throw this.createError(
-          `GEMINI_STREAM_ERROR_${apiError.status}`,
-          this.getSDKErrorMessage(apiError),
-          apiError.message
-        )
-      }
-      throw error
-    }
-  }
-
   getProviderName(): string {
     return `Google Gemini API (${this.modelName})`
   }
@@ -431,6 +430,178 @@ ${content}
     this.ai = new GoogleGenAI({ apiKey })
     this.modelName = model
     this.initialized = false
+  }
+
+  private async analyzeWithDirectContentStream(
+    prompt: string,
+    content: string,
+    options?: StreamOptions
+  ): Promise<void> {
+    const structuredPrompt = `ユーザーリクエスト:
+${prompt}
+
+対象コンテンツ:
+${content}
+
+上記のコンテンツに対してユーザーリクエストを実行してください。`
+
+    try {
+      const response = await this.ai.models.generateContentStream({
+        model: this.getModelName(this.modelName),
+        contents: structuredPrompt,
+        config: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 32768,
+          candidateCount: 1,
+        },
+      })
+
+      let fullText = ''
+      let finalResponse: any = null
+
+      for await (const chunk of response) {
+        if (chunk.text) {
+          fullText += chunk.text
+
+          if (options?.onChunk) {
+            options.onChunk({ text: chunk.text })
+          }
+        }
+        // 最後のチャンクからレスポンスデータを取得
+        finalResponse = chunk
+      }
+
+      // トークン使用状況を更新
+      if (finalResponse) {
+        this.updateTokenUsage(finalResponse)
+      }
+
+      if (options?.onComplete) {
+        options.onComplete(fullText, this.getTokenInfo() || undefined)
+      }
+    } catch (error) {
+      if (options?.onError) {
+        if (error && typeof error === 'object' && 'status' in error) {
+          const apiError = error as any
+          options.onError(
+            this.createError(
+              `GEMINI_STREAM_ERROR_${apiError.status}`,
+              this.getSDKErrorMessage(apiError),
+              apiError.message
+            )
+          )
+        } else {
+          options.onError(
+            this.createError(
+              'GEMINI_STREAM_ERROR',
+              'ストリーミング処理でエラーが発生しました',
+              error instanceof Error ? error.message : 'Unknown error'
+            )
+          )
+        }
+      }
+      throw error
+    }
+  }
+
+  private async analyzeWithFileAPIStream(
+    prompt: string,
+    content: string,
+    options?: StreamOptions
+  ): Promise<void> {
+    let file: any = null
+
+    try {
+      const { blob, mimeType, displayName } = this.prepareFileContent(content)
+
+      file = await this.ai.files.upload({
+        file: blob,
+      })
+
+      if (!file || !file.name) {
+        throw this.createError('FILE_UPLOAD_ERROR', 'ファイルのアップロードに失敗しました', '')
+      }
+
+      await this.waitForFileActive(file.name)
+
+      if (!file.uri) {
+        throw this.createError(
+          'FILE_UPLOAD_ERROR',
+          'ファイルアップロード後にファイルURIが取得できませんでした',
+          ''
+        )
+      }
+
+      const structuredPrompt = `ユーザーリクエスト: ${prompt}
+
+添付されたファイルのコンテンツに対して、上記のユーザーリクエストを実行してください。`
+
+      const response = await this.ai.models.generateContentStream({
+        model: this.getModelName(this.modelName),
+        contents: [
+          { text: structuredPrompt },
+          {
+            fileData: {
+              fileUri: file.uri,
+              mimeType: mimeType,
+            },
+          },
+        ],
+        config: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 32768,
+          candidateCount: 1,
+        },
+      })
+
+      let fullText = ''
+      let finalResponse: any = null
+
+      for await (const chunk of response) {
+        if (chunk.text) {
+          fullText += chunk.text
+
+          if (options?.onChunk) {
+            options.onChunk({ text: chunk.text })
+          }
+        }
+        // 最後のチャンクからレスポンスデータを取得
+        finalResponse = chunk
+      }
+
+      // トークン使用状況を更新
+      if (finalResponse) {
+        this.updateTokenUsage(finalResponse)
+      }
+
+      if (options?.onComplete) {
+        options.onComplete(fullText, this.getTokenInfo() || undefined)
+      }
+    } catch (error) {
+      if (options?.onError) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        options.onError(
+          this.createError(
+            'GEMINI_FILE_STREAM_ERROR',
+            'ファイルAPIストリーミング処理でエラーが発生しました',
+            message
+          )
+        )
+      }
+      throw error
+    } finally {
+      try {
+        if (file?.name) {
+          await this.ai.files.delete({ name: file.name })
+        }
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup uploaded file:', cleanupError)
+      }
+    }
   }
 
   private getSDKErrorMessage(error: any): string {

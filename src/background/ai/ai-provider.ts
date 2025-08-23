@@ -10,6 +10,18 @@ export interface AIProviderError {
   details?: string
 }
 
+export interface StreamChunk {
+  text: string
+  isComplete?: boolean
+}
+
+export interface StreamOptions {
+  onChunk?: (chunk: StreamChunk) => void
+  onComplete?: (fullText: string, tokenInfo?: TokenInfo) => void
+  onError?: (error: AIProviderError) => void
+  signal?: AbortSignal
+}
+
 export interface AIProvider {
   /**
    * プロバイダーを初期化
@@ -32,6 +44,18 @@ export interface AIProvider {
     content: string, 
     options?: { signal?: AbortSignal }
   ): Promise<string>
+
+  /**
+   * コンテンツをストリーミングで分析
+   * @param prompt ユーザーのプロンプト
+   * @param content 分析対象のコンテンツ
+   * @param options ストリーミングオプション
+   */
+  analyzeContentStream(
+    prompt: string, 
+    content: string, 
+    options?: StreamOptions
+  ): Promise<void>
 
   /**
    * トークン情報を取得（利用可能な場合）
@@ -64,6 +88,11 @@ export abstract class BaseAIProvider implements AIProvider {
     content: string, 
     options?: { signal?: AbortSignal }
   ): Promise<string>
+  abstract analyzeContentStream(
+    prompt: string, 
+    content: string, 
+    options?: StreamOptions
+  ): Promise<void>
   abstract getTokenInfo(): TokenInfo | null
   abstract destroy(): void
   abstract getProviderName(): string

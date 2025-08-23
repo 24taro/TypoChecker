@@ -1,6 +1,6 @@
 import type { AISettings, AIProvider as AIProviderType } from '../../shared/types/settings'
 import { DEFAULT_AI_SETTINGS } from '../../shared/types/settings'
-import type { AIProvider, TokenInfo, AIProviderError } from './ai-provider'
+import type { AIProvider, TokenInfo, AIProviderError, StreamOptions } from './ai-provider'
 import { GeminiProvider } from './gemini-provider'
 import { ChromeNanoProvider } from './chrome-nano-provider'
 
@@ -104,6 +104,50 @@ export class AIManager {
       }
       
       throw error
+    }
+  }
+
+  async analyzeContentStream(
+    prompt: string,
+    content: string,
+    options?: StreamOptions
+  ): Promise<void> {
+    await this.ensureInitialized()
+
+    if (!this.currentProvider) {
+      throw new Error('No AI provider available')
+    }
+
+    console.log(`Starting streaming analysis with ${this.currentProvider.getProviderName()}...`)
+    console.log('Prompt length:', prompt.length)
+    console.log('Content length:', content.length)
+
+    try {
+      await this.currentProvider.analyzeContentStream(prompt, content, options)
+    } catch (error) {
+      console.error('Primary provider streaming failed:', error)
+      
+      // フォールバック処理
+      if (this.shouldFallback(error) && this.fallbackProvider && this.settings.fallbackToChromeNano) {
+        console.log('Attempting fallback to Chrome Nano for streaming...')
+        
+        try {
+          // フォールバック時はプロバイダー名を変更してコールバックを呼び出す
+          const fallbackOptions: StreamOptions = {
+            ...options,
+            onComplete: options?.onComplete ? (fullText, tokenInfo) => {
+              options.onComplete?.(fullText, tokenInfo)
+            } : undefined
+          }
+          
+          await this.fallbackProvider.analyzeContentStream(prompt, content, fallbackOptions)
+        } catch (fallbackError) {
+          console.error('Fallback provider streaming also failed:', fallbackError)
+          throw this.createCombinedError(error, fallbackError)
+        }
+      } else {
+        throw error
+      }
     }
   }
 

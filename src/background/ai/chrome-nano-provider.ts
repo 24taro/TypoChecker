@@ -1,5 +1,5 @@
 import { AISessionManager } from '../ai-session'
-import { BaseAIProvider, type TokenInfo } from './ai-provider'
+import { BaseAIProvider, type TokenInfo, type StreamOptions } from './ai-provider'
 
 export class ChromeNanoProvider extends BaseAIProvider {
   private sessionManager: AISessionManager
@@ -90,6 +90,61 @@ export class ChromeNanoProvider extends BaseAIProvider {
         'ANALYSIS_FAILED',
         `Chrome Nano analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       )
+    }
+  }
+
+  async analyzeContentStream(
+    prompt: string,
+    content: string,
+    options?: StreamOptions
+  ): Promise<void> {
+    await this.ensureInitialized()
+
+    try {
+      // Chrome NanoはストリーミングAPIがないため、通常の分析結果を分割して送信
+      const result = await this.analyzeContent(prompt, content, { signal: options?.signal })
+      
+      // 文字を少しずつ送信してストリーミング風にする
+      const words = result.split('')
+      let accumulatedText = ''
+      
+      for (let i = 0; i < words.length; i++) {
+        accumulatedText += words[i]
+        
+        if (options?.onChunk) {
+          options.onChunk({ text: words[i] })
+        }
+        
+        // 自然なタイピング速度をシミュレート（1-10ms間隔）
+        if (i < words.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, Math.random() * 10 + 1))
+        }
+        
+        // アボートシグナルをチェック
+        if (options?.signal?.aborted) {
+          throw new Error('Request was aborted')
+        }
+      }
+      
+      if (options?.onComplete) {
+        options.onComplete(result, this.getTokenInfo() || undefined)
+      }
+    } catch (error) {
+      if (options?.onError) {
+        if (error && typeof error === 'object' && 'code' in error) {
+          const message = 'message' in error ? (error.message as string) : 'Chrome Nano streaming failed'
+          options.onError(this.createError(
+            error.code as string,
+            message
+          ))
+        } else {
+          options.onError(this.createError(
+            'STREAM_FAILED',
+            `Chrome Nano streaming failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+          ))
+        }
+      }
+      throw error
     }
   }
 
