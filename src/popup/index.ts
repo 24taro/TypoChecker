@@ -5,14 +5,13 @@ class PopupUI {
   private sendBtn: HTMLButtonElement
   private clearBtn: HTMLButtonElement
   private promptInput: HTMLTextAreaElement
-  private progressContainer: HTMLElement
-  private progressBar: HTMLElement
-  private progressText: HTMLElement
   private chatMessagesContainer: HTMLElement
   private emptyState: HTMLElement
   private providerNameSpan: HTMLElement
   private statusIndicator: HTMLElement
   private settingsBtn: HTMLButtonElement
+  private headerDatetime: HTMLElement
+  private tokenInfo: HTMLElement
   
   private currentTabId: number | null = null
   private chatHistory: ChatMessage[] = []
@@ -24,14 +23,13 @@ class PopupUI {
     this.sendBtn = document.getElementById('send-btn') as HTMLButtonElement
     this.clearBtn = document.getElementById('clear-chat') as HTMLButtonElement
     this.promptInput = document.getElementById('user-prompt') as HTMLTextAreaElement
-    this.progressContainer = document.getElementById('progress-container') as HTMLElement
-    this.progressBar = document.getElementById('progress-bar') as HTMLElement
-    this.progressText = document.getElementById('progress-text') as HTMLElement
     this.chatMessagesContainer = document.getElementById('chat-messages') as HTMLElement
     this.emptyState = document.getElementById('empty-state') as HTMLElement
     this.providerNameSpan = document.getElementById('provider-name') as HTMLElement
     this.statusIndicator = document.getElementById('status') as HTMLElement
     this.settingsBtn = document.getElementById('settings-link-btn') as HTMLButtonElement
+    this.headerDatetime = document.getElementById('header-datetime') as HTMLElement
+    this.tokenInfo = document.getElementById('token-info') as HTMLElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
@@ -63,18 +61,19 @@ class PopupUI {
       chrome.runtime.openOptionsPage()
     })
     
-    document.getElementById('export-btn')?.addEventListener('click', () => {
-      this.exportResults()
-    })
-    
-    document.getElementById('settings-btn')?.addEventListener('click', () => {
-      chrome.runtime.openOptionsPage()
-    })
   }
   
   private updateSendButtonState(): void {
     const hasPrompt = this.promptInput.value.trim().length > 0
     this.sendBtn.disabled = !hasPrompt || this.isProcessing
+    
+    if (this.isProcessing) {
+      this.sendBtn.classList.add('loading')
+      this.sendBtn.textContent = '処理中...'
+    } else {
+      this.sendBtn.classList.remove('loading')
+      this.sendBtn.textContent = '送信'
+    }
   }
   
   private adjustTextareaHeight(): void {
@@ -84,11 +83,8 @@ class PopupUI {
   
   private setupMessageListeners(): void {
     chrome.runtime.onMessage.addListener((message) => {
+      console.log('Popup received message:', message.type, message.data)
       switch (message.type) {
-        case 'ANALYSIS_PROGRESS':
-          this.updateProgress(message.current, message.total)
-          break
-          
         case 'MODEL_DOWNLOAD_START':
           this.handleModelDownloadStart(message.data.message)
           break
@@ -110,6 +106,7 @@ class PopupUI {
           break
 
         case 'ANALYSIS_STREAM_START':
+          console.log('Stream started')
           this.handleStreamStart(message.data.message)
           break
 
@@ -118,6 +115,7 @@ class PopupUI {
           break
 
         case 'ANALYSIS_STREAM_END':
+          console.log('Stream ended with data:', message.data)
           this.handleStreamEnd(message.data)
           break
 
@@ -126,6 +124,7 @@ class PopupUI {
           break
 
         case 'ANALYSIS_COMPLETE':
+          console.log('Analysis complete with data:', message.data)
           this.handleAnalysisComplete(message.data)
           break
 
@@ -183,9 +182,6 @@ class PopupUI {
     this.promptInput.value = ''
     this.adjustTextareaHeight()
     
-    // プログレス表示
-    this.progressContainer.classList.remove('hidden')
-    
     // 分析を実行
     chrome.runtime.sendMessage({
       type: 'START_ANALYSIS',
@@ -208,18 +204,14 @@ class PopupUI {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
   
-  private updateProgress(current: number, total: number): void {
-    const percentage = (current / total) * 100
-    this.progressBar.style.width = `${percentage}%`
-    this.progressText.textContent = `${current}/${total} 処理中...`
-  }
 
   private async handleAnalysisComplete(data: { 
     fullText: string; 
     provider?: string; 
     tokenInfo?: { used: number; quota: number; remaining: number } 
   }): Promise<void> {
-    this.progressContainer.classList.add('hidden')
+    console.log('ANALYSIS_COMPLETE received:', { provider: data.provider, tokenInfo: data.tokenInfo })
+    
     this.isProcessing = false
     this.updateSendButtonState()
     
@@ -231,22 +223,15 @@ class PopupUI {
       resultText = data.fullText
     }
     
-    // プロバイダー情報を結果に追加
-    if (data.provider) {
-      resultText += `\n\n--- 処理情報 ---\n使用AI: ${data.provider}`
-      
-      if (data.tokenInfo) {
-        resultText += `\nトークン使用量: ${data.tokenInfo.used}/${data.tokenInfo.quota} (残り: ${data.tokenInfo.remaining})`
-      }
-    }
-    
     // アシスタントメッセージを追加
     const assistantMessage: ChatMessage = {
       id: this.generateMessageId(),
       role: 'assistant',
       content: resultText,
       timestamp: Date.now(),
-      tabId: this.currentTabId || undefined
+      tabId: this.currentTabId || undefined,
+      provider: data.provider,
+      tokenInfo: data.tokenInfo
     }
     
     this.addMessageToChat(assistantMessage)
@@ -277,9 +262,6 @@ class PopupUI {
     try {
       this.isProcessing = true
       this.updateSendButtonState()
-      this.progressContainer.classList.remove('hidden')
-      this.progressText.textContent = 'AIモデルのダウンロードを準備中...'
-      this.progressBar.style.width = '10%'
       
       await chrome.runtime.sendMessage({ type: 'INITIATE_MODEL_DOWNLOAD' })
     } catch (error) {
@@ -290,24 +272,17 @@ class PopupUI {
 
   private handleModelDownloadStart(message: string): void {
     console.log('Model download started:', message)
-    this.progressContainer.classList.remove('hidden')
-    this.progressText.textContent = message
-    this.progressBar.style.width = '20%'
     this.isProcessing = true
     this.updateSendButtonState()
   }
 
   private handleModelDownloadProgress(data: { message: string; progress?: number }): void {
     console.log('Model download progress:', data)
-    this.progressText.textContent = data.message
-    if (data.progress) {
-      this.progressBar.style.width = `${Math.round(data.progress)}%`
-    }
+    // プログレスバーは使用しない（ボタンのローディング状態で表現）
   }
 
   private handleModelDownloadComplete(data: { message: string; success: boolean }): void {
     console.log('Model download completed:', data)
-    this.progressContainer.classList.add('hidden')
     this.isProcessing = false
     this.updateSendButtonState()
     
@@ -322,7 +297,6 @@ class PopupUI {
 
   private handleModelDownloadError(data: { message: string; error: string }): void {
     console.error('Model download error:', data)
-    this.progressContainer.classList.add('hidden')
     this.isProcessing = false
     this.updateSendButtonState()
     this.showError(`${data.message}: ${data.error}`)
@@ -330,9 +304,6 @@ class PopupUI {
 
   private handleAnalysisStart(message: string): void {
     console.log('Analysis started:', message)
-    this.progressContainer.classList.remove('hidden')
-    this.progressText.textContent = message
-    this.progressBar.style.width = '50%'
     this.isProcessing = true
     this.updateSendButtonState()
   }
@@ -341,32 +312,7 @@ class PopupUI {
 
 
 
-  private showDownloadProgress(progress: number): void {
-    this.progressText.textContent = `AIモデルダウンロード中: ${Math.round(progress)}%`
-    this.progressBar.style.width = `${progress}%`
-  }
   
-  private exportResults(): void {
-    if (!this.chatHistory.length) {
-      this.showError('エクスポートするチャット履歴がありません')
-      return
-    }
-    
-    const chatText = this.chatHistory.map(msg => {
-      const timestamp = new Date(msg.timestamp).toLocaleString('ja-JP')
-      const role = msg.role === 'user' ? 'ユーザー' : 'AI'
-      return `[${timestamp}] ${role}:\n${msg.content}\n`
-    }).join('\n')
-    
-    const blob = new Blob([chatText], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `chat-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-    this.showToast('チャット履歴をエクスポートしました')
-  }
 
   private async checkAIAvailability(): Promise<void> {
     try {
@@ -427,7 +373,6 @@ class PopupUI {
   }
 
   private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
-    this.progressContainer.classList.add('hidden')
     this.isProcessing = false
     this.updateSendButtonState()
     
@@ -464,6 +409,7 @@ class PopupUI {
   }
 
   private renderChatMessages(): void {
+    console.log('renderChatMessages called with', this.chatHistory.length, 'messages')
     this.chatMessagesContainer.innerHTML = ''
     
     if (this.chatHistory.length === 0) {
@@ -471,7 +417,15 @@ class PopupUI {
       return
     }
 
-    this.chatHistory.forEach(message => {
+    this.chatHistory.forEach((message, index) => {
+      console.log(`Rendering message ${index}:`, {
+        id: message.id,
+        role: message.role,
+        provider: message.provider,
+        tokenInfo: message.tokenInfo,
+        hasProvider: !!message.provider,
+        hasTokenInfo: !!message.tokenInfo
+      })
       const messageElement = this.createMessageElement(message)
       this.chatMessagesContainer.appendChild(messageElement)
     })
@@ -507,12 +461,38 @@ class PopupUI {
 
     const timestampDiv = document.createElement('div')
     timestampDiv.className = 'message-timestamp'
-    timestampDiv.textContent = new Date(message.timestamp).toLocaleString('ja-JP', {
+    
+    let timestampText = new Date(message.timestamp).toLocaleString('ja-JP', {
       month: 'numeric',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     })
+    
+    // AIメッセージの場合、プロバイダーとトークン情報を追加
+    if (message.role === 'assistant') {
+      console.log('Processing assistant message:', { 
+        id: message.id, 
+        provider: message.provider, 
+        tokenInfo: message.tokenInfo,
+        hasProvider: !!message.provider,
+        hasTokenInfo: !!message.tokenInfo
+      })
+      
+      if (message.provider) {
+        const shortProviderName = this.getShortProviderName(message.provider)
+        timestampText += ` | 使用AI: ${shortProviderName}`
+      }
+      if (message.tokenInfo) {
+        timestampText += ` | トークン使用量: ${message.tokenInfo.used}/${message.tokenInfo.quota} (残り: ${message.tokenInfo.remaining})`
+      }
+      
+      if (!message.provider && !message.tokenInfo) {
+        console.warn('Assistant message missing provider/token info:', message)
+      }
+    }
+    
+    timestampDiv.textContent = timestampText
 
     messageDiv.appendChild(contentDiv)
     messageDiv.appendChild(timestampDiv)
@@ -530,12 +510,22 @@ class PopupUI {
       const result = await chrome.storage.local.get([key])
       const messages: ChatMessage[] = result[key] || []
       
+      console.log('Saving message:', {
+        id: message.id,
+        role: message.role,
+        provider: message.provider,
+        tokenInfo: message.tokenInfo,
+        hasProvider: !!message.provider,
+        hasTokenInfo: !!message.tokenInfo
+      })
+      
       messages.push(message)
       
       // 最大履歴数を制限（100件まで）
       const limitedMessages = messages.slice(-100)
       
       await chrome.storage.local.set({ [key]: limitedMessages })
+      console.log('Message saved successfully')
     } catch (error) {
       console.error('Failed to save chat message:', error)
     }
@@ -548,6 +538,7 @@ class PopupUI {
       const key = `chat_${this.currentTabId}`
       const result = await chrome.storage.local.get([key])
       this.chatHistory = result[key] || []
+      console.log('Loaded chat history:', this.chatHistory.map(msg => ({ id: msg.id, role: msg.role, hasProvider: !!msg.provider, hasTokenInfo: !!msg.tokenInfo })))
       this.renderChatMessages()
     } catch (error) {
       console.error('Failed to load chat history:', error)
@@ -571,9 +562,6 @@ class PopupUI {
 
   private handleStreamStart(message: string): void {
     console.log('Stream started:', message)
-    this.progressContainer.classList.remove('hidden')
-    this.progressText.textContent = message
-    this.progressBar.style.width = '50%'
     this.isProcessing = true
     this.updateSendButtonState()
 
@@ -604,7 +592,12 @@ class PopupUI {
     provider?: string
     tokenInfo?: { used: number; quota: number; remaining: number }
   }): Promise<void> {
-    this.progressContainer.classList.add('hidden')
+    console.log('ANALYSIS_STREAM_END received:')
+    console.log('- provider:', data.provider)
+    console.log('- tokenInfo:', data.tokenInfo)
+    console.log('- hasProvider:', !!data.provider)
+    console.log('- hasTokenInfo:', !!data.tokenInfo)
+    
     this.isProcessing = false
     this.updateSendButtonState()
 
@@ -612,23 +605,24 @@ class PopupUI {
 
     let resultText = data.fullText || this.streamingContent
 
-    // プロバイダー情報を結果に追加
-    if (data.provider) {
-      resultText += `\n\n--- 処理情報 ---\n使用AI: ${data.provider}`
-
-      if (data.tokenInfo) {
-        resultText += `\nトークン使用量: ${data.tokenInfo.used}/${data.tokenInfo.quota} (残り: ${data.tokenInfo.remaining})`
-      }
-    }
-
     // 最終メッセージとしてチャット履歴に保存
     const finalMessage: ChatMessage = {
       id: this.streamingMessageId,
       role: 'assistant',
       content: resultText,
       timestamp: Date.now(),
-      tabId: this.currentTabId || undefined
+      tabId: this.currentTabId || undefined,
+      provider: data.provider,
+      tokenInfo: data.tokenInfo
     }
+    
+    console.log('Created finalMessage:', {
+      id: finalMessage.id,
+      provider: finalMessage.provider,
+      tokenInfo: finalMessage.tokenInfo,
+      hasProvider: !!finalMessage.provider,
+      hasTokenInfo: !!finalMessage.tokenInfo
+    })
 
     this.finalizeStreamingMessage(finalMessage)
     await this.saveChatMessage(finalMessage)
@@ -642,7 +636,6 @@ class PopupUI {
 
   private handleStreamError(data: { message: string; error: string }): void {
     console.error('Stream error:', data)
-    this.progressContainer.classList.add('hidden')
     this.isProcessing = false
     this.updateSendButtonState()
 
@@ -718,9 +711,19 @@ class PopupUI {
   }
 
   private finalizeStreamingMessage(message: ChatMessage): void {
+    console.log('Finalizing streaming message:', {
+      id: message.id,
+      provider: message.provider,
+      tokenInfo: message.tokenInfo,
+      hasProvider: !!message.provider,
+      hasTokenInfo: !!message.tokenInfo
+    })
+    
     const messageElement = this.chatMessagesContainer.querySelector(`[data-message-id="${message.id}"]`)
     if (messageElement) {
       const contentDiv = messageElement.querySelector('.message-content')
+      const timestampDiv = messageElement.querySelector('.message-timestamp')
+      
       if (contentDiv) {
         // カーソルを削除して最終コンテンツをマークダウンとしてレンダリング
         if (message.role === 'assistant') {
@@ -728,14 +731,38 @@ class PopupUI {
         } else {
           contentDiv.innerHTML = message.content
         }
-
-        // チャット履歴を更新
-        const index = this.chatHistory.findIndex(m => m.id === message.id)
-        if (index >= 0) {
-          this.chatHistory[index] = message
-        } else {
-          this.chatHistory.push(message)
+      }
+      
+      // タイムスタンプも更新（provider/tokenInfo情報を追加）
+      if (timestampDiv) {
+        let timestampText = new Date(message.timestamp).toLocaleString('ja-JP', {
+          month: 'numeric',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+        
+        // AIメッセージの場合、プロバイダーとトークン情報を追加
+        if (message.role === 'assistant') {
+          if (message.provider) {
+            const shortProviderName = this.getShortProviderName(message.provider)
+            timestampText += ` | 使用AI: ${shortProviderName}`
+          }
+          if (message.tokenInfo) {
+            timestampText += ` | トークン使用量: ${message.tokenInfo.used}/${message.tokenInfo.quota} (残り: ${message.tokenInfo.remaining})`
+          }
         }
+        
+        timestampDiv.textContent = timestampText
+        console.log('Updated timestamp:', timestampText)
+      }
+
+      // チャット履歴を更新
+      const index = this.chatHistory.findIndex(m => m.id === message.id)
+      if (index >= 0) {
+        this.chatHistory[index] = message
+      } else {
+        this.chatHistory.push(message)
       }
     }
   }
@@ -754,6 +781,32 @@ class PopupUI {
       this.emptyState.style.display = 'block'
     }
   }
+
+  // === ユーティリティメソッド ===
+  
+  private getShortProviderName(provider: string): string {
+    // プロバイダー名からモデル名を抽出
+    if (provider.includes('Google Gemini API')) {
+      // "Google Gemini API (gemini-2.5-flash)" → "gemini-2.5-flash"
+      const match = provider.match(/\(([^)]+)\)/)
+      if (match) {
+        return match[1]
+      }
+      return 'GeminiAPI'
+    }
+    
+    if (provider.includes('Chrome Built-in AI')) {
+      // "Chrome Built-in AI (Gemini Nano)" → "Gemini Nano" 
+      const match = provider.match(/\(([^)]+)\)/)
+      if (match) {
+        return match[1]
+      }
+      return 'Chrome AI'
+    }
+    
+    return provider
+  }
+
 }
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -143,6 +143,8 @@ export interface ChatMessage {
   content: string
   timestamp: number
   tabId?: number
+  provider?: string
+  tokenInfo?: { used: number; quota: number; remaining: number }
 }
 
 export interface SaveChatMessage {

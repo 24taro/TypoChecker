@@ -500,6 +500,15 @@ async function processAnalysis(
     let fullAnalysisResult = ''
     let finalTokenInfo: TokenInfo | undefined = undefined
     
+    // プロバイダー名を事前に取得
+    const currentProvider = aiManager.getCurrentProvider()
+    if (currentProvider) {
+      providerName = currentProvider.getProviderName()
+      console.log('Initial provider name:', providerName)
+    } else {
+      console.log('No provider found at start')
+    }
+    
     await aiManager.analyzeContentStream(userPrompt, processedContent, {
       onChunk: (chunk) => {
         // チャンクを受信したらポップアップに送信
@@ -514,7 +523,23 @@ async function processAnalysis(
       onComplete: (fullText, tokenInfo) => {
         fullAnalysisResult = fullText
         finalTokenInfo = tokenInfo
-        providerName = 'AI Provider' // プロバイダー名を取得する方法を後で実装
+        
+        // 完了時に最新のプロバイダー名を取得（フォールバックの場合に変わる可能性があるため）
+        const finalProvider = aiManager.getCurrentProvider()
+        if (finalProvider) {
+          providerName = finalProvider.getProviderName()
+          // フォールバック時の特別な表示
+          if (providerName.includes('Chrome Built-in AI') && currentProvider?.getProviderName().includes('Gemini')) {
+            providerName += ' (fallback)'
+          }
+        }
+        
+        console.log('Analysis completed, sending ANALYSIS_STREAM_END with:')
+        console.log('- provider:', providerName)
+        console.log('- tokenInfo:', finalTokenInfo)
+        console.log('- fullTextLength:', fullText.length)
+        console.log('- currentProviderName:', finalProvider?.getProviderName())
+        console.log('- originalProviderName:', currentProvider?.getProviderName())
         
         // 完了時に最終結果を送信
         chrome.runtime.sendMessage({

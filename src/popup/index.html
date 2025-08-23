@@ -9,16 +9,18 @@
 <body>
   <div class="typochecker-popup">
     <header>
-      <h1>Page AI Assistant</h1>
-      <div class="header-info">
-        <div class="provider-info" id="provider-info">
-          <span class="provider-name" id="provider-name">Loading...</span>
-          <div class="status-indicator" id="status"></div>
-        </div>
-        <button class="settings-link-btn" id="settings-link-btn" title="設定を開く">
-          ⚙️
-        </button>
+      <span class="header-datetime" id="header-datetime">8/23 22:27</span>
+      <span class="header-separator">|</span>
+      <div class="provider-info" id="provider-info">
+        <span class="provider-name" id="provider-name">Loading...</span>
+        <div class="status-indicator" id="status"></div>
       </div>
+      <span class="header-separator">|</span>
+      <span class="token-info" id="token-info">トークン使用量: --/-- (残り: --)</span>
+      <span class="header-separator">|</span>
+      <button class="settings-link-btn" id="settings-link-btn" title="設定を開く">
+        ⚙️
+      </button>
     </header>
     
     <main>
@@ -30,25 +32,13 @@
           </div>
         </div>
         
-        <div class="progress-container hidden" id="progress-container">
-          <div class="progress-bar" id="progress-bar"></div>
-          <span class="progress-text" id="progress-text">処理中...</span>
-        </div>
-        
         <div class="chat-input-container">
-          <textarea id="user-prompt" class="chat-input" rows="2" placeholder="ページについて質問してください..."></textarea>
-          <div class="chat-actions">
-            <button id="clear-chat" class="clear-btn" title="チャット履歴をクリア">🗑️</button>
-            <button id="send-btn" class="send-btn" disabled>送信</button>
-          </div>
+          <textarea id="user-prompt" class="chat-input" rows="1" placeholder="ページについて質問してください..."></textarea>
+          <button id="clear-chat" class="clear-btn" title="チャット履歴をクリア">🗑️</button>
+          <button id="send-btn" class="send-btn" disabled>送信</button>
         </div>
       </section>
     </main>
-    
-    <footer>
-      <button class="export-btn" id="export-btn">結果をエクスポート</button>
-      <button class="settings-btn" id="settings-btn">設定</button>
-    </footer>
   </div>
   
   <script type="module" src="index.ts"></script>

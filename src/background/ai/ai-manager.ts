@@ -132,15 +132,19 @@ export class AIManager {
         console.log('Attempting fallback to Chrome Nano for streaming...')
         
         try {
-          // フォールバック時はプロバイダー名を変更してコールバックを呼び出す
+          // フォールバック時のオプションを作成（プロバイダー名を調整）
           const fallbackOptions: StreamOptions = {
             ...options,
             onComplete: options?.onComplete ? (fullText, tokenInfo) => {
-              options.onComplete?.(fullText, tokenInfo)
+              // フォールバックプロバイダーのトークン情報を使用
+              const fallbackTokenInfo = this.fallbackProvider?.getTokenInfo() || tokenInfo
+              options.onComplete?.(fullText, fallbackTokenInfo)
             } : undefined
           }
           
           await this.fallbackProvider.analyzeContentStream(prompt, content, fallbackOptions)
+          
+          console.log(`Fallback provider completed: ${this.fallbackProvider.getProviderName()}`)
         } catch (fallbackError) {
           console.error('Fallback provider streaming also failed:', fallbackError)
           throw this.createCombinedError(error, fallbackError)
