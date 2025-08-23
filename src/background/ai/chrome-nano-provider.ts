@@ -96,13 +96,17 @@ export class ChromeNanoProvider extends BaseAIProvider {
   async analyzeContentStream(
     prompt: string,
     content: string,
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void> {
     await this.ensureInitialized()
 
     try {
+      // 会話履歴を考慮したプロンプトを構築
+      const conversationPrompt = this.buildConversationPrompt(prompt, content, chatHistory)
+      
       // Chrome NanoはストリーミングAPIがないため、通常の分析結果を分割して送信
-      const result = await this.analyzeContent(prompt, content, { signal: options?.signal })
+      const result = await this.analyzeContent(conversationPrompt, '', { signal: options?.signal })
       
       // 文字を少しずつ送信してストリーミング風にする
       const words = result.split('')
@@ -194,6 +198,34 @@ export class ChromeNanoProvider extends BaseAIProvider {
     } catch (error) {
       console.error('Detailed availability check failed:', error)
       return 'no'
+    }
+  }
+
+  private buildConversationPrompt(prompt: string, content: string, chatHistory?: any[]): string {
+    // 会話履歴がある場合は、それを含めた総合的なプロンプトを構築
+    if (chatHistory && chatHistory.length > 0) {
+      let conversationContext = '以下は過去の会話履歴です:\n\n'
+      
+      for (const message of chatHistory) {
+        if (message.role === 'user') {
+          conversationContext += `ユーザー: ${message.content}\n\n`
+        } else if (message.role === 'assistant') {
+          conversationContext += `アシスタント: ${message.content}\n\n`
+        }
+      }
+      
+      conversationContext += `上記の会話履歴を踏まえて、最新のユーザーメッセージに対して適切に応答してください。`
+      
+      return conversationContext
+    } else {
+      // 初回の場合は、従来通りページコンテンツと一緒に送信
+      return `ユーザーリクエスト:
+${prompt}
+
+対象コンテンツ:
+${content}
+
+上記のコンテンツに対してユーザーリクエストを実行してください。`
     }
   }
 }

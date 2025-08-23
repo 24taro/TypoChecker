@@ -1,11 +1,23 @@
 import { AIManager } from './ai/ai-manager'
-import type { PageContentMessage, Message } from '../shared/types/messages'
+import type { PageContentMessage, Message, ChatMessage } from '../shared/types/messages'
 import type { ContentLevel } from '../shared/types/settings'
 import type { TokenInfo } from './ai/ai-provider'
 
 console.log('Page AI Assistant Service Worker started')
 
 const aiManager = new AIManager()
+
+// タブごとのページコンテンツキャッシュ
+interface CachedPageContent {
+  url: string
+  title: string
+  html: string
+  processedContent: string
+  timestamp: number
+}
+
+const pageContentCache = new Map<number, CachedPageContent>()
+const CACHE_EXPIRY_TIME = 30 * 60 * 1000 // 30分でキャッシュを無効化
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -14,6 +26,74 @@ chrome.runtime.onInstalled.addListener((details) => {
     console.log('Page AI Assistant extension updated')
   }
 })
+
+// タブが閉じられたときにキャッシュをクリア
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearPageContentCache(tabId)
+})
+
+// タブが更新されたときにキャッシュをクリア
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) {
+    clearPageContentCache(tabId)
+  }
+})
+
+// 定期的に期限切れのキャッシュをクリア
+setInterval(cleanupExpiredCache, 5 * 60 * 1000) // 5分ごと
+
+// キャッシュ管理関数
+function clearPageContentCache(tabId: number): void {
+  if (pageContentCache.has(tabId)) {
+    pageContentCache.delete(tabId)
+    console.log(`Cleared page content cache for tab ${tabId}`)
+  }
+}
+
+function cleanupExpiredCache(): void {
+  const now = Date.now()
+  const expiredTabs: number[] = []
+  
+  for (const [tabId, cached] of pageContentCache.entries()) {
+    if (now - cached.timestamp > CACHE_EXPIRY_TIME) {
+      expiredTabs.push(tabId)
+    }
+  }
+  
+  for (const tabId of expiredTabs) {
+    pageContentCache.delete(tabId)
+  }
+  
+  if (expiredTabs.length > 0) {
+    console.log(`Cleaned up ${expiredTabs.length} expired cache entries`)
+  }
+}
+
+function getCachedPageContent(tabId: number, url: string): CachedPageContent | null {
+  const cached = pageContentCache.get(tabId)
+  if (!cached) {
+    return null
+  }
+  
+  // URLが変わっていたらキャッシュは無効
+  if (cached.url !== url) {
+    pageContentCache.delete(tabId)
+    return null
+  }
+  
+  // 期限切れチェック
+  if (Date.now() - cached.timestamp > CACHE_EXPIRY_TIME) {
+    pageContentCache.delete(tabId)
+    return null
+  }
+  
+  return cached
+}
+
+function setCachedPageContent(tabId: number, content: CachedPageContent): void {
+  pageContentCache.set(tabId, content)
+  console.log(`Cached page content for tab ${tabId}: ${content.url}`)
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Message received:', message)
@@ -56,7 +136,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'START_ANALYSIS':
       console.log('Analysis requested for tab:', message.tabId)
-      handleAnalysis(message.tabId, message.userPrompt, sender)
+      console.log('===== BACKGROUND SCRIPT DEBUG =====')
+      console.log('Received chatHistory:', message.chatHistory?.length || 0, 'messages')
+      console.log('Received isFirstMessage:', message.isFirstMessage)
+      if (message.chatHistory && message.chatHistory.length > 0) {
+        console.log('Chat history details:')
+        message.chatHistory.forEach((msg: any, i: number) => {
+          console.log(`  ${i}: ${msg.role} - ${msg.content.substring(0, 50)}...`)
+        })
+      }
+      console.log('===== END BACKGROUND SCRIPT DEBUG =====')
+      
+      handleAnalysis(message.tabId, message.userPrompt, message.chatHistory, message.isFirstMessage, sender)
         .then(() => {
           sendResponse({ success: true })
         })
@@ -175,34 +266,65 @@ async function handleModelDownload(): Promise<void> {
   }
 }
 
-async function handleAnalysis(tabId: number, userPrompt: string, sender: chrome.runtime.MessageSender): Promise<void> {
+async function handleAnalysis(
+  tabId: number, 
+  userPrompt: string, 
+  chatHistory: ChatMessage[] = [], 
+  isFirstMessage: boolean = true, 
+  sender: chrome.runtime.MessageSender
+): Promise<void> {
   try {
-    console.log('Starting analysis for tab:', tabId)
+    console.log('Starting analysis for tab:', tabId, { isFirstMessage, historyLength: chatHistory.length })
     
-    // ページのHTML全体を抽出
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        return {
-          url: window.location.href,
-          title: document.title,
-          html: document.documentElement.outerHTML,
-        }
-      },
-    })
+    let pageData: { url: string; title: string; html: string } | null = null
+    let processedContent = ''
     
-    if (!results || results.length === 0 || !results[0].result) {
-      throw new Error('Failed to extract page content')
+    if (isFirstMessage) {
+      // 初回メッセージの場合：ページHTML全体を抽出してキャッシュ
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          return {
+            url: window.location.href,
+            title: document.title,
+            html: document.documentElement.outerHTML,
+          }
+        },
+      })
+      
+      if (!results || results.length === 0 || !results[0].result) {
+        throw new Error('Failed to extract page content')
+      }
+      
+      pageData = results[0].result
+      console.log('Page HTML extracted for first message:', {
+        url: pageData.url,
+        htmlLength: pageData.html?.length || 0,
+        title: pageData.title
+      })
+      
+      console.log('Raw HTML preview (first 200 chars):', pageData.html.substring(0, 200))
+      
+      // コンテンツを処理してキャッシュに保存
+      const settings = aiManager.getSettings()
+      processedContent = processContentByLevel(settings.contentLevel, pageData.html)
+      
+      setCachedPageContent(tabId, {
+        url: pageData.url,
+        title: pageData.title,
+        html: pageData.html,
+        processedContent: processedContent,
+        timestamp: Date.now()
+      })
+      
+    } else {
+      // 継続メッセージの場合：ページコンテンツは送信しない（会話履歴のみを使用）
+      console.log('Continuing conversation without page content (using chat history only)')
+      processedContent = '' // 空文字列に設定
     }
     
-    const pageData = results[0].result
-    console.log('Page HTML extracted directly:', {
-      url: pageData.url,
-      htmlLength: pageData.html?.length || 0,
-    })
-    
     // AI処理を開始
-    await processAnalysis(pageData, userPrompt, sender)
+    await processAnalysis(pageData, processedContent, userPrompt, chatHistory, isFirstMessage, sender)
     
   } catch (error) {
     console.error('Failed to start analysis:', error)
@@ -454,37 +576,51 @@ function extractTextContent(html: string): string {
 }
 
 async function processAnalysis(
-  data: { url: string; title: string; html: string },
+  data: { url: string; title: string; html: string } | null,
+  processedContent: string,
   userPrompt: string,
+  chatHistory: ChatMessage[],
+  isFirstMessage: boolean,
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
   try {
-    const htmlLength = data.html?.length || 0
-    console.log('Processing analysis for:', {
-      url: data.url,
-      htmlLength,
-    })
-
-    // AI Managerを初期化してsettingsを取得
+    // AI Managerを初期化
     await aiManager.initialize()
-    const settings = aiManager.getSettings()
     
-    // contentLevelに基づいてコンテンツを処理
-    const processedContent = processContentByLevel(settings.contentLevel, data.html)
-    const processedLength = processedContent.length
-    const reductionPercent = ((htmlLength - processedLength) / htmlLength * 100).toFixed(1)
-    
-    console.log(`Content processing (${settings.contentLevel}): ${htmlLength} → ${processedLength} bytes (${reductionPercent}% reduced)`)
+    // processedContentは既に渡されているのでそのまま使用
+    if (isFirstMessage && data) {
+      // 初回メッセージの場合：サイズチェックを実行
+      const htmlLength = data.html?.length || 0
+      console.log('Processing analysis for first message:', {
+        url: data.url,
+        htmlLength,
+        processedLength: processedContent.length,
+        historyLength: chatHistory.length
+      })
 
-    // 処理後のサイズをチェック（Gemini 2.5の制限に基づく）
-    const MAX_SAFE_SIZE = 3.5 * 1024 * 1024 // 約875,000トークン相当（1Mトークン制限の余裕）
-    
-    if (processedLength > MAX_SAFE_SIZE) {
-      const sizeMB = (processedLength / 1024 / 1024).toFixed(2)
-      const maxSizeMB = (MAX_SAFE_SIZE / 1024 / 1024).toFixed(2)
-      const originalSizeMB = (htmlLength / 1024 / 1024).toFixed(2)
+      const processedLength = processedContent.length
+      if (htmlLength > 0) {
+        const reductionPercent = ((htmlLength - processedLength) / htmlLength * 100).toFixed(1)
+        console.log(`Content processing: ${htmlLength} → ${processedLength} bytes (${reductionPercent}% reduced)`)
+      }
+
+      // 処理後のサイズをチェック（Gemini 2.5の制限に基づく）
+      const MAX_SAFE_SIZE = 3.5 * 1024 * 1024 // 約875,000トークン相当（1Mトークン制限の余裕）
       
-      throw new Error(`ページのコンテンツが大きすぎるため処理できません。\n元サイズ: ${originalSizeMB}MB → 処理後: ${sizeMB}MB\n推奨最大サイズ: ${maxSizeMB}MB\n\nより小さなページでお試しください。`)
+      if (processedLength > MAX_SAFE_SIZE) {
+        const sizeMB = (processedLength / 1024 / 1024).toFixed(2)
+        const maxSizeMB = (MAX_SAFE_SIZE / 1024 / 1024).toFixed(2)
+        const originalSizeMB = (htmlLength / 1024 / 1024).toFixed(2)
+        
+        throw new Error(`ページのコンテンツが大きすぎるため処理できません。\n元サイズ: ${originalSizeMB}MB → 処理後: ${sizeMB}MB\n推奨最大サイズ: ${maxSizeMB}MB\n\nより小さなページでお試しください。`)
+      }
+    } else {
+      // 継続メッセージの場合
+      console.log('Processing continuation message:', {
+        historyLength: chatHistory.length,
+        isFirstMessage,
+        hasCachedContent: processedContent.length > 0
+      })
     }
 
     // ストリーミング開始を通知
@@ -509,7 +645,7 @@ async function processAnalysis(
       console.log('No provider found at start')
     }
     
-    await aiManager.analyzeContentStream(userPrompt, processedContent, {
+    await aiManager.analyzeContentStream(userPrompt, processedContent, chatHistory, {
       onChunk: (chunk) => {
         // チャンクを受信したらポップアップに送信
         chrome.runtime.sendMessage({

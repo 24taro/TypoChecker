@@ -1,6 +1,7 @@
 import type { AISettings, AIProvider as AIProviderType } from '../../shared/types/settings'
 import { DEFAULT_AI_SETTINGS } from '../../shared/types/settings'
 import type { AIProvider, TokenInfo, AIProviderError, StreamOptions } from './ai-provider'
+import type { ChatMessage } from '../../shared/types/messages'
 import { GeminiProvider } from './gemini-provider'
 import { ChromeNanoProvider } from './chrome-nano-provider'
 
@@ -110,6 +111,7 @@ export class AIManager {
   async analyzeContentStream(
     prompt: string,
     content: string,
+    chatHistory: ChatMessage[] = [],
     options?: StreamOptions
   ): Promise<void> {
     await this.ensureInitialized()
@@ -123,7 +125,7 @@ export class AIManager {
     console.log('Content length:', content.length)
 
     try {
-      await this.currentProvider.analyzeContentStream(prompt, content, options)
+      await this.currentProvider.analyzeContentStream(prompt, content, chatHistory, options)
     } catch (error) {
       console.error('Primary provider streaming failed:', error)
       
@@ -142,7 +144,7 @@ export class AIManager {
             } : undefined
           }
           
-          await this.fallbackProvider.analyzeContentStream(prompt, content, fallbackOptions)
+          await this.fallbackProvider.analyzeContentStream(prompt, content, chatHistory, fallbackOptions)
           
           console.log(`Fallback provider completed: ${this.fallbackProvider.getProviderName()}`)
         } catch (fallbackError) {

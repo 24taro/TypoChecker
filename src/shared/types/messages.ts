@@ -45,6 +45,8 @@ export interface StartAnalysisMessage {
   type: 'START_ANALYSIS'
   tabId: number
   userPrompt: string
+  chatHistory?: ChatMessage[]
+  isFirstMessage?: boolean
 }
 
 export interface ProgressUpdateMessage {

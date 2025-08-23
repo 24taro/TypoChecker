@@ -54,6 +54,7 @@ export interface AIProvider {
   analyzeContentStream(
     prompt: string, 
     content: string, 
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void>
 
@@ -91,6 +92,7 @@ export abstract class BaseAIProvider implements AIProvider {
   abstract analyzeContentStream(
     prompt: string, 
     content: string, 
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void>
   abstract getTokenInfo(): TokenInfo | null

@@ -167,6 +167,9 @@ class PopupUI {
     this.updateSendButtonState()
     
     // ユーザーメッセージを追加
+    // 初回メッセージかどうかを判定（ユーザーメッセージを追加する前に判定）
+    const isFirstMessage = !this.chatHistory.some(msg => msg.role === 'assistant')
+    
     const userMessage: ChatMessage = {
       id: this.generateMessageId(),
       role: 'user',
@@ -182,11 +185,27 @@ class PopupUI {
     this.promptInput.value = ''
     this.adjustTextareaHeight()
     
+    // 会話履歴を準備（初回の場合は空配列、継続の場合は現在の履歴）
+    const relevantHistory = isFirstMessage ? [] : this.chatHistory.filter(msg => 
+      msg.role === 'user' || msg.role === 'assistant'
+    )
+    
+    console.log('===== CHAT CONTEXT DEBUG =====')
+    console.log('Total chat history length:', this.chatHistory.length)
+    console.log('Relevant history length:', relevantHistory.length)
+    console.log('Is first message:', isFirstMessage)
+    console.log('Chat history details:', this.chatHistory.map(msg => ({
+      role: msg.role,
+      contentPreview: msg.content.substring(0, 50) + '...'
+    })))
+    
     // 分析を実行
     chrome.runtime.sendMessage({
       type: 'START_ANALYSIS',
       tabId: this.currentTabId,
       userPrompt,
+      chatHistory: relevantHistory,
+      isFirstMessage,
     })
   }
   

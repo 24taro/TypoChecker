@@ -119,15 +119,16 @@ export class GeminiProvider extends BaseAIProvider {
   async analyzeContentStream(
     prompt: string,
     content: string,
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void> {
     const contentSize = new Blob([content]).size
 
     try {
       if (this.shouldUseFileAPI(content, contentSize)) {
-        await this.analyzeWithFileAPIStream(prompt, content, options)
+        await this.analyzeWithFileAPIStream(prompt, content, chatHistory, options)
       } else {
-        await this.analyzeWithDirectContentStream(prompt, content, options)
+        await this.analyzeWithDirectContentStream(prompt, content, chatHistory, options)
       }
     } catch (error) {
       if (options?.onError) {
@@ -435,20 +436,16 @@ ${content}
   private async analyzeWithDirectContentStream(
     prompt: string,
     content: string,
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void> {
-    const structuredPrompt = `ユーザーリクエスト:
-${prompt}
-
-対象コンテンツ:
-${content}
-
-上記のコンテンツに対してユーザーリクエストを実行してください。`
+    // 会話履歴からGemini API用のcontents配列を構築
+    const contents = this.buildContentsArray(prompt, content, chatHistory)
 
     try {
       const response = await this.ai.models.generateContentStream({
         model: this.getModelName(this.modelName),
-        contents: structuredPrompt,
+        contents: contents,
         config: {
           temperature: 0.7,
           topK: 40,
@@ -509,6 +506,7 @@ ${content}
   private async analyzeWithFileAPIStream(
     prompt: string,
     content: string,
+    chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void> {
     let file: any = null
@@ -534,21 +532,12 @@ ${content}
         )
       }
 
-      const structuredPrompt = `ユーザーリクエスト: ${prompt}
-
-添付されたファイルのコンテンツに対して、上記のユーザーリクエストを実行してください。`
+      // 会話履歴からGemini API用のcontents配列を構築（ファイルAPI用）
+      const contents = this.buildContentsArrayWithFile(prompt, file.uri, mimeType, chatHistory)
 
       const response = await this.ai.models.generateContentStream({
         model: this.getModelName(this.modelName),
-        contents: [
-          { text: structuredPrompt },
-          {
-            fileData: {
-              fileUri: file.uri,
-              mimeType: mimeType,
-            },
-          },
-        ],
+        contents: contents,
         config: {
           temperature: 0.7,
           topK: 40,
@@ -602,6 +591,102 @@ ${content}
         console.warn('Failed to cleanup uploaded file:', cleanupError)
       }
     }
+  }
+
+  private buildContentsArray(prompt: string, content: string, chatHistory?: any[]): any[] {
+    const contents: any[] = []
+
+    console.log('===== GEMINI PROVIDER DEBUG =====')
+    console.log('Chat history received:', chatHistory?.length || 0, 'messages')
+    console.log('Content length:', content.length)
+    console.log('Prompt:', prompt.substring(0, 100) + '...')
+    
+    if (chatHistory && chatHistory.length > 0) {
+      console.log('Chat history details:')
+      chatHistory.forEach((msg, i) => {
+        console.log(`  ${i}: ${msg.role} - ${msg.content.substring(0, 50)}...`)
+      })
+      console.log('NOTE: Latest user message is already included in chat history, not adding separately')
+    }
+
+    // 会話履歴がある場合は、それを基にcontents配列を構築
+    if (chatHistory && chatHistory.length > 0) {
+      console.log('Building multi-turn conversation')
+      // 過去の会話履歴をcontents配列に変換（最新のユーザーメッセージは既に履歴に含まれているので、それをそのまま使用）
+      for (const message of chatHistory) {
+        if (message.role === 'user' || message.role === 'assistant') {
+          contents.push({
+            role: message.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: message.content }]
+          })
+        }
+      }
+      
+      // 会話履歴に既に最新のメッセージが含まれているので、追加で送信しない
+      console.log('Multi-turn contents array built with', contents.length, 'entries')
+    } else {
+      console.log('Building first message with page content')
+      // 初回の場合は、従来通りページコンテンツと一緒に送信
+      const structuredPrompt = `ユーザーリクエスト:
+${prompt}
+
+対象コンテンツ:
+${content}
+
+上記のコンテンツに対してユーザーリクエストを実行してください。`
+
+      contents.push({
+        role: 'user',
+        parts: [{ text: structuredPrompt }]
+      })
+      
+      console.log('First message contents array built')
+    }
+
+    console.log('Final contents array structure:')
+    contents.forEach((item, i) => {
+      console.log(`  ${i}: role=${item.role}, text_length=${item.parts[0].text.length}`)
+    })
+    console.log('===== END GEMINI PROVIDER DEBUG =====')
+
+    return contents
+  }
+
+  private buildContentsArrayWithFile(prompt: string, fileUri: string, mimeType: string, chatHistory?: any[]): any[] {
+    const contents: any[] = []
+
+    // 会話履歴がある場合は、それを基にcontents配列を構築
+    if (chatHistory && chatHistory.length > 0) {
+      // 過去の会話履歴をcontents配列に変換（最新のメッセージは既に履歴に含まれている）
+      for (const message of chatHistory) {
+        if (message.role === 'user' || message.role === 'assistant') {
+          contents.push({
+            role: message.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: message.content }]
+          })
+        }
+      }
+    } else {
+      // 初回の場合は、ファイルと一緒に送信
+      const structuredPrompt = `ユーザーリクエスト: ${prompt}
+
+添付されたファイルのコンテンツに対して、上記のユーザーリクエストを実行してください。`
+
+      contents.push({
+        role: 'user',
+        parts: [
+          { text: structuredPrompt },
+          {
+            fileData: {
+              fileUri: fileUri,
+              mimeType: mimeType,
+            },
+          },
+        ]
+      })
+    }
+
+    return contents
   }
 
   private getSDKErrorMessage(error: any): string {
