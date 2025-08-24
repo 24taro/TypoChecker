@@ -12,6 +12,7 @@ export class GeminiProvider extends BaseAIProvider {
   private ai: GoogleGenAI
   private modelName: GeminiModel
   private lastTokenUsage: TokenInfo | null = null
+  private totalTokensUsed: number = 0
 
   constructor(apiKey: string, model: GeminiModel) {
     super()
@@ -402,10 +403,17 @@ ${content}
   private updateTokenUsage(response: any): void {
     if (response.usageMetadata) {
       const usage = response.usageMetadata
+      const currentRequestTokens = usage.totalTokenCount || 0
+      
+      // トークン使用量を累積
+      this.totalTokensUsed += currentRequestTokens
+      
+      console.log(`Token usage - Current request: ${currentRequestTokens}, Total accumulated: ${this.totalTokensUsed}`)
+      
       this.lastTokenUsage = {
-        used: usage.totalTokenCount || 0,
+        used: this.totalTokensUsed,
         quota: 1000000,
-        remaining: 1000000 - (usage.totalTokenCount || 0),
+        remaining: 1000000 - this.totalTokensUsed,
       }
     }
   }
@@ -417,6 +425,7 @@ ${content}
   destroy(): void {
     this.initialized = false
     this.lastTokenUsage = null
+    this.totalTokensUsed = 0
   }
 
   getProviderName(): string {
@@ -431,6 +440,8 @@ ${content}
     this.ai = new GoogleGenAI({ apiKey })
     this.modelName = model
     this.initialized = false
+    this.totalTokensUsed = 0
+    this.lastTokenUsage = null
   }
 
   private async analyzeWithDirectContentStream(
