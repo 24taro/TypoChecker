@@ -112,6 +112,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       return true
 
+    case 'GET_SETTINGS':
+      console.log('GET_SETTINGS request received')
+      aiManager.initialize()
+        .then(() => {
+          const settings = aiManager.getSettings()
+          console.log('Settings retrieved:', settings)
+          sendResponse({ settings })
+        })
+        .catch((error) => {
+          console.error('GET_SETTINGS error:', error)
+          sendResponse({ error: (error as Error).message })
+        })
+      return true
+
     case 'PAGE_CONTENT':
       console.log('Page content received from tab:', sender.tab?.id)
       handlePageContent(message.data)

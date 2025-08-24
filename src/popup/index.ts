@@ -6,12 +6,10 @@ class PopupUI {
   private clearBtn: HTMLButtonElement
   private promptInput: HTMLTextAreaElement
   private chatMessagesContainer: HTMLElement
-  private emptyState: HTMLElement
-  private providerNameSpan: HTMLElement
-  private statusIndicator: HTMLElement
+  private initialMessage: HTMLElement
+  private aiProviderInfo: HTMLElement
+  private contentInfo: HTMLElement
   private settingsBtn: HTMLButtonElement
-  private headerDatetime: HTMLElement
-  private tokenInfo: HTMLElement
   
   private currentTabId: number | null = null
   private chatHistory: ChatMessage[] = []
@@ -24,12 +22,10 @@ class PopupUI {
     this.clearBtn = document.getElementById('clear-chat') as HTMLButtonElement
     this.promptInput = document.getElementById('user-prompt') as HTMLTextAreaElement
     this.chatMessagesContainer = document.getElementById('chat-messages') as HTMLElement
-    this.emptyState = document.getElementById('empty-state') as HTMLElement
-    this.providerNameSpan = document.getElementById('provider-name') as HTMLElement
-    this.statusIndicator = document.getElementById('status') as HTMLElement
+    this.initialMessage = document.getElementById('initial-message') as HTMLElement
+    this.aiProviderInfo = document.getElementById('ai-provider-info') as HTMLElement
+    this.contentInfo = document.getElementById('content-info') as HTMLElement
     this.settingsBtn = document.getElementById('settings-link-btn') as HTMLButtonElement
-    this.headerDatetime = document.getElementById('header-datetime') as HTMLElement
-    this.tokenInfo = document.getElementById('token-info') as HTMLElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
@@ -338,7 +334,8 @@ class PopupUI {
       const response = await chrome.runtime.sendMessage({ type: 'CHECK_AI_AVAILABILITY' })
       
       if (response.error) {
-        this.updateProviderStatus('エラー', 'error')
+        this.aiProviderInfo.textContent = 'エラー - AI利用不可'
+        this.aiProviderInfo.style.color = '#dc3545'
         this.showError(`AI利用不可: ${response.error}`)
         this.sendBtn.disabled = true
         return
@@ -348,13 +345,16 @@ class PopupUI {
       if (details) {
         // プライマリープロバイダーの状態を表示
         if (details.primary) {
-          this.updateProviderStatus(details.primaryProvider, 'success')
+          this.aiProviderInfo.textContent = details.primaryProvider
+          this.aiProviderInfo.style.color = '#28a745' // 成功カラー
         } else {
           // フォールバックプロバイダーがある場合
           if (details.fallback) {
-            this.updateProviderStatus(`${details.fallbackProvider} (fallback)`, 'warning')
+            this.aiProviderInfo.textContent = `${details.fallbackProvider} (フォールバック)`
+            this.aiProviderInfo.style.color = '#ffc107' // 警告カラー
           } else {
-            this.updateProviderStatus('利用不可', 'error')
+            this.aiProviderInfo.textContent = '利用不可'
+            this.aiProviderInfo.style.color = '#dc3545' // エラーカラー
           }
         }
       }
@@ -377,19 +377,103 @@ class PopupUI {
           console.log('AI API is ready')
           break
       }
+
+      // 設定情報を取得して送信情報を更新
+      await this.updateContentInfo()
+
     } catch (error) {
       console.error('Failed to check AI availability:', error)
-      this.updateProviderStatus('接続エラー', 'error')
+      this.aiProviderInfo.textContent = '接続エラー'
+      this.aiProviderInfo.style.color = '#dc3545'
       this.showError('AI APIの確認に失敗しました')
     }
   }
 
-  private updateProviderStatus(providerName: string, status: 'success' | 'warning' | 'error'): void {
-    this.providerNameSpan.textContent = providerName
-    
-    // ステータスインジケーターのクラスを更新
-    this.statusIndicator.className = `status-indicator ${status}`
+  private async updateContentInfo(): Promise<void> {
+    try {
+      console.log('Requesting settings from background...')
+      
+      // 設定を取得（タイムアウト付き）
+      const settingsResponse = await Promise.race([
+        chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), 5000)
+        )
+      ]) as any
+      
+      console.log('Settings response received:', settingsResponse)
+      
+      if (settingsResponse?.error) {
+        console.error('Settings error:', settingsResponse.error)
+        // エラーの場合はデフォルト設定を使用
+        this.displayDefaultContentInfo()
+        return
+      }
+      
+      if (settingsResponse && settingsResponse.settings) {
+        const contentLevel = settingsResponse.settings.contentLevel || 'html-css'
+        console.log('Content level:', contentLevel)
+        const contentItems = this.getContentLevelDescription(contentLevel)
+        
+        // コンテンツ情報を更新
+        this.contentInfo.innerHTML = contentItems.map(item => `<li>${item}</li>`).join('')
+      } else {
+        console.error('Invalid settings response:', settingsResponse)
+        // 無効なレスポンスの場合もデフォルト設定を使用
+        this.displayDefaultContentInfo()
+      }
+    } catch (error) {
+      console.error('Failed to get content info:', error)
+      // エラーの場合はデフォルト設定を使用
+      this.displayDefaultContentInfo()
+    }
   }
+
+  private displayDefaultContentInfo(): void {
+    console.log('Using default content info')
+    const defaultItems = this.getContentLevelDescription('html-css')
+    this.contentInfo.innerHTML = defaultItems.map(item => `<li>${item}</li>`).join('')
+  }
+
+  private getContentLevelDescription(contentLevel: string): string[] {
+    switch (contentLevel) {
+      case 'text-only':
+        return [
+          '表示中のタブのテキスト内容',
+          'ページタイトル'
+        ]
+      
+      case 'html-only':
+        return [
+          '表示中のタブのHTML構造',
+          'テキスト内容',
+          'ページタイトル'
+        ]
+      
+      case 'html-css':
+        return [
+          '表示中のタブのHTML構造',
+          'CSSスタイル情報',
+          'テキスト内容'
+        ]
+      
+      case 'html-css-js':
+        return [
+          '表示中のタブのHTML構造',
+          'CSSスタイル情報',
+          'JavaScriptコード',
+          'テキスト内容'
+        ]
+      
+      default:
+        return [
+          '表示中のタブのHTML構造',
+          'CSSスタイル情報',
+          'テキスト内容'
+        ]
+    }
+  }
+
 
   private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
     this.isProcessing = false
@@ -432,7 +516,7 @@ class PopupUI {
     this.chatMessagesContainer.innerHTML = ''
     
     if (this.chatHistory.length === 0) {
-      this.chatMessagesContainer.appendChild(this.emptyState)
+      this.chatMessagesContainer.appendChild(this.initialMessage)
       return
     }
 
@@ -672,8 +756,8 @@ class PopupUI {
     const messageElement = this.createStreamingMessageElement(message)
     this.chatMessagesContainer.appendChild(messageElement)
     
-    // Empty stateを非表示
-    this.emptyState.style.display = 'none'
+    // Initial messageを非表示
+    this.initialMessage.style.display = 'none'
 
     // 最新のメッセージまでスクロール
     this.chatMessagesContainer.scrollTop = this.chatMessagesContainer.scrollHeight
@@ -795,9 +879,9 @@ class PopupUI {
     // チャット履歴からも削除
     this.chatHistory = this.chatHistory.filter(m => m.id !== messageId)
 
-    // メッセージがない場合はempty stateを表示
+    // メッセージがない場合は初期メッセージを表示
     if (this.chatHistory.length === 0) {
-      this.emptyState.style.display = 'block'
+      this.initialMessage.style.display = 'block'
     }
   }
 

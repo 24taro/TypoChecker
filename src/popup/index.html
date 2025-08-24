@@ -8,23 +8,24 @@
 </head>
 <body>
   <div class="typochecker-popup">
-    <header>
-      <span class="header-datetime" id="header-datetime">8/23 22:27</span>
-      <span class="header-separator">|</span>
-      <div class="provider-info" id="provider-info">
-        <span class="provider-name" id="provider-name">Loading...</span>
-        <div class="status-indicator" id="status"></div>
-      </div>
-      <span class="header-separator">|</span>
-      <span class="token-info" id="token-info">トークン使用量: --/-- (残り: --)</span>
-    </header>
     
     <main>
       <section class="chat-container">
         <div class="chat-messages" id="chat-messages">
-          <div class="empty-state" id="empty-state">
-            <p>ページについて質問してください</p>
-            <small>※ ページのHTML全体を処理対象として送信します</small>
+          <div class="chat-message assistant" id="initial-message">
+            <div class="message-content assistant">
+              <p>このページの内容について、以下の情報を使って質問にお答えします：</p>
+              <ul>
+                <li><strong>使用AI：</strong><span id="ai-provider-info">Loading...</span></li>
+                <li><strong>送信情報：</strong>
+                  <ul id="content-info">
+                    <li>Loading...</li>
+                  </ul>
+                </li>
+              </ul>
+              <p>メッセージを送信すると、現在のページの情報が自動的に分析対象として送信されます。</p>
+            </div>
+            <div class="message-timestamp">準備完了</div>
           </div>
         </div>
         
