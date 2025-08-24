@@ -170,19 +170,20 @@ header {
   background: #dc3545;
 }
 
-.settings-link-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
-  padding: 6px 8px;
-  border-radius: 6px;
+.settings-btn {
+  background: transparent;
+  border: none;
+  padding: 8px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
+  border-radius: 4px;
+  font-size: 16px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
 }
 
-.settings-link-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+.settings-btn:hover {
+  opacity: 1;
+  background: #f0f0f0;
 }
 
 main {
