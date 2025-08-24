@@ -16,6 +16,14 @@ class PopupUI {
   private isProcessing = false
   private streamingMessageId: string | null = null
   private streamingContent = ''
+  private preloadedContent: {
+    url: string
+    title: string
+    originalContent: string
+    processedContent: string
+    contentLevel: string
+    timestamp: number
+  } | null = null
   
   constructor() {
     this.sendBtn = document.getElementById('send-btn') as HTMLButtonElement
@@ -54,6 +62,11 @@ class PopupUI {
     })
     
     this.settingsBtn.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage()
+    })
+    
+    
+    this.aiProviderInfo.addEventListener('click', () => {
       chrome.runtime.openOptionsPage()
     })
     
@@ -146,6 +159,12 @@ class PopupUI {
     
     // チャット履歴を読み込み
     await this.loadChatHistory()
+    
+    // ページコンテンツを事前取得
+    await this.preloadPageContent()
+    
+    // 初期状態のダウンロードリンクを設定（少し遅延）
+    setTimeout(() => this.setupDownloadLink(), 100)
   }
   
   private async sendMessage(): Promise<void> {
@@ -165,6 +184,13 @@ class PopupUI {
     // ユーザーメッセージを追加
     // 初回メッセージかどうかを判定（ユーザーメッセージを追加する前に判定）
     const isFirstMessage = !this.chatHistory.some(msg => msg.role === 'assistant')
+    
+    console.log('Message sending debug:', {
+      chatHistoryLength: this.chatHistory.length,
+      hasAssistantMessage: this.chatHistory.some(msg => msg.role === 'assistant'),
+      isFirstMessage,
+      chatHistory: this.chatHistory.map(msg => ({ role: msg.role, contentPreview: msg.content.substring(0, 30) }))
+    })
     
     const userMessage: ChatMessage = {
       id: this.generateMessageId(),
@@ -347,14 +373,17 @@ class PopupUI {
         if (details.primary) {
           this.aiProviderInfo.textContent = details.primaryProvider
           this.aiProviderInfo.style.color = '#28a745' // 成功カラー
+          this.aiProviderInfo.classList.add('clickable')
         } else {
           // フォールバックプロバイダーがある場合
           if (details.fallback) {
             this.aiProviderInfo.textContent = `${details.fallbackProvider} (フォールバック)`
             this.aiProviderInfo.style.color = '#ffc107' // 警告カラー
+            this.aiProviderInfo.classList.add('clickable')
           } else {
             this.aiProviderInfo.textContent = '利用不可'
             this.aiProviderInfo.style.color = '#dc3545' // エラーカラー
+            this.aiProviderInfo.classList.remove('clickable')
           }
         }
       }
@@ -415,8 +444,14 @@ class PopupUI {
         console.log('Content level:', contentLevel)
         const contentItems = this.getContentLevelDescription(contentLevel)
         
-        // コンテンツ情報を更新
-        this.contentInfo.innerHTML = contentItems.map(item => `<li>${item}</li>`).join('')
+        // コンテンツ情報を更新（ダウンロードリンクも含める）
+        const downloadLinkStatus = this.preloadedContent ? '' : 'disabled'
+        this.contentInfo.innerHTML = `
+          ${contentItems.map(item => `<li>${item}</li>`).join('')}
+          <li><a href="#" id="download-content" class="download-link ${downloadLinkStatus}">送信情報をダウンロード</a></li>
+        `
+        // ダウンロードリンクのイベントリスナーを再設定（少し遅延）
+        setTimeout(() => this.setupDownloadLink(), 100)
       } else {
         console.error('Invalid settings response:', settingsResponse)
         // 無効なレスポンスの場合もデフォルト設定を使用
@@ -432,7 +467,121 @@ class PopupUI {
   private displayDefaultContentInfo(): void {
     console.log('Using default content info')
     const defaultItems = this.getContentLevelDescription('html-css')
-    this.contentInfo.innerHTML = defaultItems.map(item => `<li>${item}</li>`).join('')
+    const downloadLinkStatus = this.preloadedContent ? '' : 'disabled'
+    this.contentInfo.innerHTML = `
+      ${defaultItems.map(item => `<li>${item}</li>`).join('')}
+      <li><a href="#" id="download-content" class="download-link ${downloadLinkStatus}">送信情報をダウンロード</a></li>
+    `
+    // ダウンロードリンクのイベントリスナーを再設定（少し遅延）
+    setTimeout(() => this.setupDownloadLink(), 100)
+  }
+
+  private setupDownloadLink(): void {
+    const downloadLink = document.getElementById('download-content')
+    console.log('Setting up download link:', downloadLink)
+    if (downloadLink) {
+      downloadLink.addEventListener('click', (e) => {
+        e.preventDefault()
+        console.log('Download link clicked')
+        console.log('Download link classes:', downloadLink.classList.toString())
+        console.log('Preloaded content available:', !!this.preloadedContent)
+        if (!downloadLink.classList.contains('disabled')) {
+          console.log('Executing download...')
+          this.downloadPageContent()
+        } else {
+          console.log('Download link is disabled')
+        }
+      })
+    } else {
+      console.error('Download link element not found')
+    }
+  }
+
+  private async preloadPageContent(): Promise<void> {
+    if (!this.currentTabId) return
+    
+    try {
+      console.log('Preloading page content...')
+      
+      const response = await chrome.runtime.sendMessage({
+        type: 'PRELOAD_PAGE_CONTENT',
+        tabId: this.currentTabId
+      })
+      
+      if (response.error) {
+        console.error('Failed to preload content:', response.error)
+        return
+      }
+      
+      // コンテンツをキャッシュ
+      this.preloadedContent = {
+        url: response.url,
+        title: response.title,
+        originalContent: response.originalContent,
+        processedContent: response.processedContent,
+        contentLevel: response.contentLevel,
+        timestamp: Date.now()
+      }
+      
+      console.log('Content preloaded successfully:', {
+        url: response.url,
+        originalSize: response.originalContent.length,
+        processedSize: response.processedContent.length,
+        contentLevel: response.contentLevel
+      })
+      
+      // ダウンロードリンクを有効化
+      const downloadLink = document.getElementById('download-content')
+      if (downloadLink) {
+        downloadLink.classList.remove('disabled')
+      }
+      
+    } catch (error) {
+      console.error('Failed to preload page content:', error)
+    }
+  }
+
+  private async downloadPageContent(): Promise<void> {
+    console.log('downloadPageContent called')
+    console.log('Preloaded content:', this.preloadedContent)
+    try {
+      // 事前取得したコンテンツを使用
+      if (!this.preloadedContent) {
+        console.log('No preloaded content available')
+        this.showToast('コンテンツがまだ読み込まれていません', 'error')
+        return
+      }
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `page-content-${timestamp}.txt`
+      
+      // メタデータを含むコンテンツを作成
+      const downloadContent = `# ページ情報
+URL: ${this.preloadedContent.url}
+タイトル: ${this.preloadedContent.title}
+取得日時: ${new Date(this.preloadedContent.timestamp).toLocaleString('ja-JP')}
+コンテンツレベル: ${this.preloadedContent.contentLevel}
+元サイズ: ${this.preloadedContent.originalContent.length} 文字
+処理後サイズ: ${this.preloadedContent.processedContent.length} 文字
+
+# 送信される内容
+${this.preloadedContent.processedContent}
+`
+      
+      // Blobを作成してダウンロード
+      const blob = new Blob([downloadContent], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      
+      this.showToast('ダウンロードを開始しました', 'success')
+    } catch (error) {
+      console.error('Download failed:', error)
+      this.showToast('ダウンロードに失敗しました', 'error')
+    }
   }
 
   private getContentLevelDescription(contentLevel: string): string[] {

@@ -53,14 +53,14 @@ export class ChromeNanoProvider extends BaseAIProvider {
 
     try {
       console.log('Analyzing content with Chrome Nano...')
-      console.log('Chrome Nano - Prompt length:', prompt.length)
-      console.log('Chrome Nano - Content length:', content.length)
+      console.log('Chrome Nano - Prompt length:', prompt?.length || 0)
+      console.log('Chrome Nano - Content length:', content?.length || 0)
       console.log('Chrome Nano - Session manager available:', !!this.sessionManager)
       
       const result = await this.sessionManager.analyzeText(prompt, content, options)
       
       console.log('Chrome Nano analysis completed:', {
-        responseLength: result.length,
+        responseLength: result?.length || 0,
         tokenInfo: this.sessionManager.getTokensInfo(),
       })
       
@@ -203,14 +203,18 @@ export class ChromeNanoProvider extends BaseAIProvider {
 
   private buildConversationPrompt(prompt: string, content: string, chatHistory?: any[]): string {
     // 会話履歴がある場合は、それを含めた総合的なプロンプトを構築
-    if (chatHistory && chatHistory.length > 0) {
+    if (chatHistory && Array.isArray(chatHistory) && chatHistory.length > 0) {
       let conversationContext = '以下は過去の会話履歴です:\n\n'
       
       for (const message of chatHistory) {
-        if (message.role === 'user') {
-          conversationContext += `ユーザー: ${message.content}\n\n`
-        } else if (message.role === 'assistant') {
-          conversationContext += `アシスタント: ${message.content}\n\n`
+        if (message && typeof message === 'object' && message.role && message.content && typeof message.content === 'string') {
+          if (message.role === 'user') {
+            conversationContext += `ユーザー: ${message.content}\n\n`
+          } else if (message.role === 'assistant') {
+            conversationContext += `アシスタント: ${message.content}\n\n`
+          }
+        } else {
+          console.warn('Invalid message in chat history for Chrome Nano:', message)
         }
       }
       
@@ -218,6 +222,10 @@ export class ChromeNanoProvider extends BaseAIProvider {
       
       return conversationContext
     } else {
+      if (chatHistory !== undefined && !Array.isArray(chatHistory)) {
+        console.warn('Invalid chatHistory type for Chrome Nano (not an array):', typeof chatHistory, chatHistory)
+      }
+      
       // 初回の場合は、従来通りページコンテンツと一緒に送信
       return `ユーザーリクエスト:
 ${prompt}

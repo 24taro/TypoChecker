@@ -506,4 +506,48 @@ main {
   border-radius: 3px;
 }
 
+/* AI プロバイダー情報のクリック可能スタイル */
+#ai-provider-info.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  transition: text-decoration-style 0.2s;
+}
+
+#ai-provider-info.clickable:hover {
+  text-decoration-style: solid;
+}
+
+/* ダウンロードリンクのスタイル - Geminiモデル名と同じスタイル */
+.download-link {
+  color: #0969da;
+  text-decoration: none;
+  font-size: 13px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Source Code Pro', monospace;
+  font-weight: 500;
+  background-color: rgba(9, 105, 218, 0.08);
+  border: 1px solid rgba(9, 105, 218, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.9;
+  transition: all 0.2s ease;
+}
+
+.download-link:hover:not(.disabled) {
+  opacity: 1;
+  background-color: rgba(9, 105, 218, 0.12);
+  border-color: rgba(9, 105, 218, 0.3);
+  transform: translateY(-1px);
+}
+
+.download-link.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+  color: #999;
+  background-color: rgba(153, 153, 153, 0.08);
+  border-color: rgba(153, 153, 153, 0.2);
+}
+
 /* デフォルトmarginを使用するため、追加の調整は不要 */

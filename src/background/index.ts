@@ -126,14 +126,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       return true
 
-    case 'PAGE_CONTENT':
-      console.log('Page content received from tab:', sender.tab?.id)
-      handlePageContent(message.data)
+    case 'PRELOAD_PAGE_CONTENT':
+      handlePreloadPageContent(message.tabId)
         .then(sendResponse)
         .catch((error) => {
-          console.error('Content processing failed:', error)
+          console.error('PRELOAD_PAGE_CONTENT error:', error)
           sendResponse({ error: error.message })
         })
+      return true
+
+    case 'PAGE_CONTENT':
+      console.log('Page content received from tab:', sender.tab?.id)
+      // 自動分析は実行しない - 事前読み込みのみ
+      console.log('PAGE_CONTENT received, but no automatic analysis will be performed')
+      sendResponse({ success: true })
       return true
 
     case 'INITIATE_MODEL_DOWNLOAD':
@@ -156,7 +162,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.chatHistory && message.chatHistory.length > 0) {
         console.log('Chat history details:')
         message.chatHistory.forEach((msg: any, i: number) => {
-          console.log(`  ${i}: ${msg.role} - ${msg.content.substring(0, 50)}...`)
+          console.log(`  ${i}: ${msg?.role || 'unknown'} - ${(msg?.content || '').substring(0, 50)}...`)
         })
       }
       console.log('===== END BACKGROUND SCRIPT DEBUG =====')
@@ -207,16 +213,114 @@ async function handleStartAnalysis(tabId: number): Promise<void> {
 }
 
 function extractPageContent(): void {
+  console.log('Extracting page content...')
+  
+  // より確実にコンテンツを取得
+  const bodyText = document.body?.innerText || document.body?.textContent || ''
+  const htmlContent = document.documentElement?.outerHTML || ''
+  
+  console.log('Extracted content lengths:', {
+    bodyText: bodyText.length,
+    htmlContent: htmlContent.length,
+    title: document.title
+  })
+  
   const content = {
     url: window.location.href,
     title: document.title,
-    text: document.body.innerText,
+    text: htmlContent, // HTMLを直接送信
+    content: {
+      visibleText: [bodyText],
+      hiddenText: [],
+      metadata: [document.title]
+    }
   }
+  
+  console.log('Sending PAGE_CONTENT message with text length:', content.text.length)
   
   chrome.runtime.sendMessage({
     type: 'PAGE_CONTENT',
     data: content,
   })
+}
+
+async function handlePreloadPageContent(tabId: number): Promise<any> {
+  try {
+    // 現在のタブのURLを取得してキャッシュを確認
+    const tab = await chrome.tabs.get(tabId)
+    const cached = getCachedPageContent(tabId, tab.url || '')
+    
+    if (cached) {
+      console.log('Using cached content for tab:', tabId)
+      const settings = aiManager.getSettings()
+      return {
+        url: cached.url,
+        title: cached.title,
+        originalContent: cached.html,
+        processedContent: cached.processedContent,
+        contentLevel: settings.contentLevel
+      }
+    }
+    
+    console.log('Fetching fresh content for tab:', tabId)
+    
+    // Content Scriptを実行
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: extractPageContent,
+    })
+    
+    // ページコンテンツの受信を待つ
+    return new Promise((resolve) => {
+      const listener = (message: Message, sender: chrome.runtime.MessageSender) => {
+        if (sender.tab?.id === tabId && message.type === 'PAGE_CONTENT') {
+          chrome.runtime.onMessage.removeListener(listener)
+          
+          const settings = aiManager.getSettings()
+          
+          // HTMLテキストを使用
+          const htmlContent = message.data.text || ''
+          console.log('Processing preloaded content:', {
+            textLength: htmlContent.length,
+            contentLevel: settings.contentLevel
+          })
+          
+          const processedContent = processContentByLevel(
+            settings.contentLevel,
+            htmlContent
+          )
+          
+          // キャッシュに保存
+          setCachedPageContent(tabId, {
+            url: message.data.url,
+            title: message.data.title,
+            html: htmlContent,
+            processedContent: processedContent,
+            timestamp: Date.now()
+          })
+          
+          resolve({
+            url: message.data.url,
+            title: message.data.title,
+            originalContent: htmlContent,
+            processedContent: processedContent,
+            contentLevel: settings.contentLevel
+          })
+        }
+      }
+      
+      chrome.runtime.onMessage.addListener(listener)
+      
+      // タイムアウトを15秒に延長し、詳細なログを追加
+      setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(listener)
+        console.error('Preload page content timeout for tab:', tabId)
+        resolve({ error: 'ページコンテンツ取得がタイムアウトしました' })
+      }, 15000)
+    })
+  } catch (error) {
+    throw new Error('ページコンテンツの取得に失敗しました: ' + error)
+  }
 }
 
 async function handlePageContent(data: { url: string; title: string; text: string }): Promise<{ success: boolean; data: unknown }> {
@@ -323,6 +427,13 @@ async function handleAnalysis(
       const settings = aiManager.getSettings()
       processedContent = processContentByLevel(settings.contentLevel, pageData.html)
       
+      console.log('Processed content details:', {
+        contentLevel: settings.contentLevel,
+        originalLength: pageData.html?.length || 0,
+        processedLength: processedContent?.length || 0,
+        processedPreview: processedContent?.substring(0, 200) || 'EMPTY'
+      })
+      
       setCachedPageContent(tabId, {
         url: pageData.url,
         title: pageData.title,
@@ -334,6 +445,7 @@ async function handleAnalysis(
     } else {
       // 継続メッセージの場合：ページコンテンツは送信しない（会話履歴のみを使用）
       console.log('Continuing conversation without page content (using chat history only)')
+      console.log('isFirstMessage is false, chatHistory length:', chatHistory?.length || 0)
       processedContent = '' // 空文字列に設定
     }
     
@@ -347,11 +459,22 @@ async function handleAnalysis(
 }
 
 function processContentByLevel(contentLevel: ContentLevel, html: string): string {
+  console.log('processContentByLevel called:', {
+    contentLevel,
+    htmlLength: html?.length || 0,
+    htmlPreview: html?.substring(0, 100) || 'EMPTY'
+  })
+  
   try {
     switch (contentLevel) {
       case 'text-only':
         // 重要度を加味したマークダウン変換
-        return htmlToMarkdown(html, true)
+        const markdownResult = htmlToMarkdown(html, true)
+        console.log('htmlToMarkdown result:', {
+          length: markdownResult?.length || 0,
+          preview: markdownResult?.substring(0, 100) || 'EMPTY'
+        })
+        return markdownResult
 
       case 'html-only':
         // HTML構造のみ（CSS・JavaScriptを除去）
@@ -658,6 +781,14 @@ async function processAnalysis(
     } else {
       console.log('No provider found at start')
     }
+    
+    console.log('About to call analyzeContentStream:', {
+      userPrompt: userPrompt?.substring(0, 50) || 'EMPTY',
+      processedContent: processedContent?.substring(0, 100) || 'EMPTY',
+      processedContentLength: processedContent?.length || 0,
+      chatHistoryLength: chatHistory?.length || 0,
+      isFirstMessage
+    })
     
     await aiManager.analyzeContentStream(userPrompt, processedContent, chatHistory, {
       onChunk: (chunk) => {

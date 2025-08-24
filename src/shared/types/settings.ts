@@ -15,9 +15,9 @@ export interface StoredSettings {
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
-  provider: 'gemini-api',
+  provider: 'chrome-nano', // より安全なデフォルトとしてChrome Nanoを使用
   geminiModel: 'gemini-2.5-flash',
-  fallbackToChromeNano: true,
+  fallbackToChromeNano: true, // フォールバックを有効化
   contentLevel: 'html-css',
 }
 

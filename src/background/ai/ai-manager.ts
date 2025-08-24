@@ -49,8 +49,8 @@ export class AIManager {
 
     try {
       console.log(`Analyzing content with ${this.currentProvider.getProviderName()}...`)
-      console.log('Prompt length:', prompt.length)
-      console.log('Content length:', content.length)
+      console.log('Prompt length:', prompt?.length || 0)
+      console.log('Content length:', content?.length || 0)
       console.log('Provider type:', this.currentProvider.constructor.name)
       
       const result = await this.currentProvider.analyzeContent(prompt, content, options)
@@ -121,8 +121,8 @@ export class AIManager {
     }
 
     console.log(`Starting streaming analysis with ${this.currentProvider.getProviderName()}...`)
-    console.log('Prompt length:', prompt.length)
-    console.log('Content length:', content.length)
+    console.log('Prompt length:', prompt?.length || 0)
+    console.log('Content length:', content?.length || 0)
 
     try {
       await this.currentProvider.analyzeContentStream(prompt, content, chatHistory, options)
@@ -246,14 +246,21 @@ export class AIManager {
 
     // プライマリープロバイダーを作成
     if (this.settings.provider === 'gemini-api') {
-      if (this.settings.geminiApiKey) {
-        console.log('Creating Gemini API provider')
-        this.currentProvider = new GeminiProvider(
-          this.settings.geminiApiKey,
-          this.settings.geminiModel
-        )
+      // API キーの検証を強化
+      if (this.settings.geminiApiKey && this.settings.geminiApiKey.trim().length > 0) {
+        console.log('Creating Gemini API provider with valid API key')
+        try {
+          this.currentProvider = new GeminiProvider(
+            this.settings.geminiApiKey.trim(),
+            this.settings.geminiModel
+          )
+        } catch (error) {
+          console.error('Failed to create Gemini provider:', error)
+          console.log('Falling back to Chrome Nano as primary')
+          this.currentProvider = new ChromeNanoProvider()
+        }
       } else {
-        console.warn('Gemini API key not provided, using Chrome Nano as primary')
+        console.warn('Gemini API key not provided or empty, using Chrome Nano as primary')
         this.currentProvider = new ChromeNanoProvider()
       }
     } else {
@@ -262,7 +269,7 @@ export class AIManager {
     }
 
     // フォールバック用のChrome Nanoプロバイダーを作成
-    if (this.settings.fallbackToChromeNano && this.settings.provider === 'gemini-api') {
+    if (this.settings.fallbackToChromeNano && this.settings.provider === 'gemini-api' && this.currentProvider instanceof GeminiProvider) {
       console.log('Creating Chrome Nano fallback provider')
       this.fallbackProvider = new ChromeNanoProvider()
       try {
@@ -277,7 +284,8 @@ export class AIManager {
     } else {
       console.log('Fallback provider not needed:', {
         fallbackEnabled: this.settings.fallbackToChromeNano,
-        primaryProvider: this.settings.provider
+        primaryProvider: this.settings.provider,
+        currentProviderType: this.currentProvider?.constructor.name
       })
     }
 
@@ -301,12 +309,23 @@ export class AIManager {
           this.currentProvider = this.fallbackProvider
           this.fallbackProvider = null
         } else {
-          console.error('No fallback provider available, throwing error')
-          throw error
+          // フォールバックもない場合は、Chrome Nanoを作成
+          console.log('Creating Chrome Nano as emergency fallback')
+          this.currentProvider?.destroy()
+          this.currentProvider = new ChromeNanoProvider()
+          try {
+            await this.currentProvider.initialize()
+            console.log('Emergency fallback provider initialized')
+          } catch (fallbackError) {
+            console.error('Emergency fallback also failed:', fallbackError)
+            throw fallbackError
+          }
         }
       }
     } else {
-      console.error('No primary provider created')
+      console.error('No primary provider created, creating Chrome Nano as fallback')
+      this.currentProvider = new ChromeNanoProvider()
+      await this.currentProvider.initialize()
     }
   }
 

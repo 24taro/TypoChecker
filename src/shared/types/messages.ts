@@ -63,6 +63,7 @@ export interface PageContentMessage {
   data: {
     url: string
     title: string
+    text: string
     content: ExtractedContent
   }
 }
@@ -178,6 +179,11 @@ export interface ClearChatMessage {
   }
 }
 
+export interface PreloadPageContentMessage {
+  type: 'PRELOAD_PAGE_CONTENT'
+  tabId: number
+}
+
 export type Message =
   | ExtractTextMessage
   | AnalysisCompleteMessage
@@ -198,3 +204,4 @@ export type Message =
   | LoadChatHistoryMessage
   | ChatHistoryResponse
   | ClearChatMessage
+  | PreloadPageContentMessage

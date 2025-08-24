@@ -16,8 +16,24 @@ export class GeminiProvider extends BaseAIProvider {
 
   constructor(apiKey: string, model: GeminiModel) {
     super()
-    this.ai = new GoogleGenAI({ apiKey })
-    this.modelName = model
+    
+    // API キーの検証
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+      throw new Error('Valid API key is required for Gemini provider')
+    }
+    
+    // モデル名の検証
+    if (!model) {
+      throw new Error('Valid model name is required for Gemini provider')
+    }
+    
+    try {
+      this.ai = new GoogleGenAI({ apiKey: apiKey.trim() })
+      this.modelName = model
+    } catch (error) {
+      console.error('Failed to create GoogleGenAI instance:', error)
+      throw new Error(`Failed to initialize Gemini provider: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   private getModelName(model: GeminiModel): string {
@@ -123,6 +139,15 @@ export class GeminiProvider extends BaseAIProvider {
     chatHistory?: any[],
     options?: StreamOptions
   ): Promise<void> {
+    // パラメータ検証
+    if (prompt === undefined || prompt === null) {
+      prompt = ''
+    }
+    
+    if (content === undefined || content === null) {
+      content = ''
+    }
+    
     const contentSize = new Blob([content]).size
 
     try {
@@ -356,15 +381,18 @@ ${content}
     mimeType: string
     displayName: string
   } {
-    const hasHtmlTags = /<[^>]+>/g.test(content)
+    // contentが未定義の場合のフォールバック
+    const safeContent = content || ''
+    
+    const hasHtmlTags = /<[^>]+>/g.test(safeContent)
     const hasCssContent =
-      /<style[^>]*>[\s\S]*?<\/style>/gi.test(content) ||
-      /\.[a-zA-Z-]+\s*\{[\s\S]*?\}/g.test(content)
-    const hasJsContent = /<script[^>]*>[\s\S]*?<\/script>/gi.test(content)
+      /<style[^>]*>[\s\S]*?<\/style>/gi.test(safeContent) ||
+      /\.[a-zA-Z-]+\s*\{[\s\S]*?\}/g.test(safeContent)
+    const hasJsContent = /<script[^>]*>[\s\S]*?<\/script>/gi.test(safeContent)
     const isMarkdown =
-      /^#{1,6}\s+/gm.test(content) ||
-      /^\*\*[^*]+\*\*|^\*[^*]+\*/gm.test(content) ||
-      /^\[.+\]\(.+\)/gm.test(content)
+      /^#{1,6}\s+/gm.test(safeContent) ||
+      /^\*\*[^*]+\*\*|^\*[^*]+\*/gm.test(safeContent) ||
+      /^\[.+\]\(.+\)/gm.test(safeContent)
 
     let mimeType: string
     let extension: string
@@ -394,7 +422,7 @@ ${content}
       contentType = 'text-only'
     }
 
-    const blob = new Blob([content], { type: mimeType })
+    const blob = new Blob([safeContent], { type: mimeType })
     const displayName = `page-content-${Date.now()}-${contentType}.${extension}`
 
     return { blob, mimeType, displayName }
@@ -609,33 +637,37 @@ ${content}
 
     console.log('===== GEMINI PROVIDER DEBUG =====')
     console.log('Chat history received:', chatHistory?.length || 0, 'messages')
-    console.log('Content length:', content.length)
-    console.log('Prompt:', prompt.substring(0, 100) + '...')
+    console.log('Content length:', content?.length || 0)
+    console.log('Prompt:', (prompt || '').substring(0, 100) + '...')
     
-    if (chatHistory && chatHistory.length > 0) {
+    // chatHistoryの検証を強化
+    if (chatHistory && Array.isArray(chatHistory) && chatHistory.length > 0) {
       console.log('Chat history details:')
       chatHistory.forEach((msg, i) => {
-        console.log(`  ${i}: ${msg.role} - ${msg.content.substring(0, 50)}...`)
+        console.log(`  ${i}: ${msg?.role || 'unknown'} - ${(msg?.content || '').substring(0, 50)}...`)
       })
       console.log('NOTE: Latest user message is already included in chat history, not adding separately')
-    }
-
-    // 会話履歴がある場合は、それを基にcontents配列を構築
-    if (chatHistory && chatHistory.length > 0) {
-      console.log('Building multi-turn conversation')
+      
       // 過去の会話履歴をcontents配列に変換（最新のユーザーメッセージは既に履歴に含まれているので、それをそのまま使用）
       for (const message of chatHistory) {
-        if (message.role === 'user' || message.role === 'assistant') {
-          contents.push({
-            role: message.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: message.content }]
-          })
+        if (message && typeof message === 'object' && message.role && message.content && typeof message.content === 'string') {
+          if (message.role === 'user' || message.role === 'assistant') {
+            contents.push({
+              role: message.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: message.content }]
+            })
+          }
+        } else {
+          console.warn('Invalid message in chat history:', message)
         }
       }
       
-      // 会話履歴に既に最新のメッセージが含まれているので、追加で送信しない
       console.log('Multi-turn contents array built with', contents.length, 'entries')
     } else {
+      if (chatHistory !== undefined && !Array.isArray(chatHistory)) {
+        console.warn('Invalid chatHistory type (not an array):', typeof chatHistory, chatHistory)
+      }
+      
       console.log('Building first message with page content')
       // 初回の場合は、従来通りページコンテンツと一緒に送信
       const structuredPrompt = `ユーザーリクエスト:
@@ -656,7 +688,8 @@ ${content}
 
     console.log('Final contents array structure:')
     contents.forEach((item, i) => {
-      console.log(`  ${i}: role=${item.role}, text_length=${item.parts[0].text.length}`)
+      const textLength = item.parts && item.parts[0] && item.parts[0].text ? item.parts[0].text.length : 0
+      console.log(`  ${i}: role=${item.role}, text_length=${textLength}`)
     })
     console.log('===== END GEMINI PROVIDER DEBUG =====')
 
