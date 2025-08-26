@@ -10,13 +10,18 @@ export interface ExtractedContent {
   visibleText: string[]
   hiddenText: string[]
   metadata: string[]
+  structuredData?: unknown[]
+  totalLength?: number
 }
 
 export interface AnalysisCompleteMessage {
   type: 'ANALYSIS_COMPLETE'
   data: {
-    results: AnalysisResult[]
-    stats: AnalysisStats
+    errors?: TypoError[]
+    results?: AnalysisResult[]
+    stats?: AnalysisStats
+    url?: string
+    tokenInfo?: unknown
   }
 }
 
@@ -32,6 +37,11 @@ export interface TypoError {
   text?: string
   suggestion: string
   explanation?: string
+  chunkId?: number
+  position?: {
+    start: number
+    end: number
+  }
 }
 
 export interface AnalysisStats {

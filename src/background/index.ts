@@ -104,11 +104,28 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     // AIセッションを初期化
     await aiSession.initialize()
 
-    // テキストを分析（現時点では全体を一度に送信、Phase 2でチャンク処理を実装）
-    const analysisResult = await aiSession.analyzeText(data.text)
+    // シンプルな処理：テキストが長すぎる場合は最初の部分だけを処理
+    const MAX_TEXT_LENGTH = 20000 // 約5000トークン
+    const textToAnalyze = data.text.length > MAX_TEXT_LENGTH 
+      ? data.text.substring(0, MAX_TEXT_LENGTH) 
+      : data.text
+    
+    console.log(`Analyzing text (length: ${textToAnalyze.length})`)
+    
+    // AIで直接分析（チャンク分割なし）
+    const analysisResult = await aiSession.analyzeText(textToAnalyze)
     
     // 結果をパース
     const parsedResult = aiSession.parseAnalysisResult(analysisResult)
+    const allErrors = parsedResult.errors || []
+    
+    // 統計情報を計算
+    const stats = {
+      totalErrors: allErrors.length,
+      typoCount: allErrors.filter(e => e.type === 'typo').length,
+      grammarCount: allErrors.filter(e => e.type === 'grammar').length,
+      japaneseCount: allErrors.filter(e => e.type === 'japanese').length,
+    }
 
     // トークン情報を取得
     const tokenInfo = aiSession.getTokensInfo()
@@ -120,13 +137,14 @@ async function handlePageContent(data: { url: string; title: string; text: strin
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_COMPLETE',
       data: {
-        ...parsedResult,
+        errors: allErrors,
+        stats,
         url: data.url,
         tokenInfo,
       },
     })
 
-    return { success: true, data: parsedResult }
+    return { success: true, data: { errors: allErrors, stats } }
   } catch (error) {
     console.error('Failed to process content:', error)
     
