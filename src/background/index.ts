@@ -1,47 +1,178 @@
-import { AISessionManager } from './ai-session'
-import type { PageContentMessage, Message } from '../shared/types/messages'
+import { AIManager } from './ai/ai-manager'
+import type { PageContentMessage, Message, ChatMessage } from '../shared/types/messages'
+import type { ContentLevel } from '../shared/types/settings'
+import type { TokenInfo } from './ai/ai-provider'
 
-console.log('TypoChecker Service Worker started')
+console.log('Page AI Assistant Service Worker started')
 
-const aiSession = new AISessionManager()
+const aiManager = new AIManager()
+
+// タブごとのページコンテンツキャッシュ
+interface CachedPageContent {
+  url: string
+  title: string
+  html: string
+  processedContent: string
+  timestamp: number
+}
+
+const pageContentCache = new Map<number, CachedPageContent>()
+const CACHE_EXPIRY_TIME = 30 * 60 * 1000 // 30分でキャッシュを無効化
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('TypoChecker extension installed')
+    console.log('Page AI Assistant extension installed')
   } else if (details.reason === 'update') {
-    console.log('TypoChecker extension updated')
+    console.log('Page AI Assistant extension updated')
   }
 })
+
+// タブが閉じられたときにキャッシュをクリア
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearPageContentCache(tabId)
+})
+
+// タブが更新されたときにキャッシュをクリア
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) {
+    clearPageContentCache(tabId)
+  }
+})
+
+// 定期的に期限切れのキャッシュをクリア
+setInterval(cleanupExpiredCache, 5 * 60 * 1000) // 5分ごと
+
+// キャッシュ管理関数
+function clearPageContentCache(tabId: number): void {
+  if (pageContentCache.has(tabId)) {
+    pageContentCache.delete(tabId)
+    console.log(`Cleared page content cache for tab ${tabId}`)
+  }
+}
+
+function cleanupExpiredCache(): void {
+  const now = Date.now()
+  const expiredTabs: number[] = []
+  
+  for (const [tabId, cached] of pageContentCache.entries()) {
+    if (now - cached.timestamp > CACHE_EXPIRY_TIME) {
+      expiredTabs.push(tabId)
+    }
+  }
+  
+  for (const tabId of expiredTabs) {
+    pageContentCache.delete(tabId)
+  }
+  
+  if (expiredTabs.length > 0) {
+    console.log(`Cleaned up ${expiredTabs.length} expired cache entries`)
+  }
+}
+
+function getCachedPageContent(tabId: number, url: string): CachedPageContent | null {
+  const cached = pageContentCache.get(tabId)
+  if (!cached) {
+    return null
+  }
+  
+  // URLが変わっていたらキャッシュは無効
+  if (cached.url !== url) {
+    pageContentCache.delete(tabId)
+    return null
+  }
+  
+  // 期限切れチェック
+  if (Date.now() - cached.timestamp > CACHE_EXPIRY_TIME) {
+    pageContentCache.delete(tabId)
+    return null
+  }
+  
+  return cached
+}
+
+function setCachedPageContent(tabId: number, content: CachedPageContent): void {
+  pageContentCache.set(tabId, content)
+  console.log(`Cached page content for tab ${tabId}: ${content.url}`)
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Message received:', message)
   
   switch (message.type) {
     case 'CHECK_AI_AVAILABILITY':
-      aiSession.checkAvailability()
+      aiManager.checkAvailability()
         .then((availability) => {
-          sendResponse({ availability })
+          sendResponse({ 
+            availability: availability.primary ? 'readily' : 'no',
+            details: availability 
+          })
         })
         .catch((error) => {
           sendResponse({ error: error.message })
         })
       return true
 
-    case 'START_ANALYSIS':
-      handleStartAnalysis(message.tabId)
+    case 'GET_SETTINGS':
+      console.log('GET_SETTINGS request received')
+      aiManager.initialize()
+        .then(() => {
+          const settings = aiManager.getSettings()
+          console.log('Settings retrieved:', settings)
+          sendResponse({ settings })
+        })
+        .catch((error) => {
+          console.error('GET_SETTINGS error:', error)
+          sendResponse({ error: (error as Error).message })
+        })
+      return true
+
+    case 'PRELOAD_PAGE_CONTENT':
+      handlePreloadPageContent(message.tabId)
         .then(sendResponse)
         .catch((error) => {
-          console.error('Analysis failed:', error)
+          console.error('PRELOAD_PAGE_CONTENT error:', error)
           sendResponse({ error: error.message })
         })
       return true
-      
+
     case 'PAGE_CONTENT':
       console.log('Page content received from tab:', sender.tab?.id)
-      handlePageContent(message.data)
-        .then(sendResponse)
+      // 自動分析は実行しない - 事前読み込みのみ
+      console.log('PAGE_CONTENT received, but no automatic analysis will be performed')
+      sendResponse({ success: true })
+      return true
+
+    case 'INITIATE_MODEL_DOWNLOAD':
+      console.log('Model download requested')
+      handleModelDownload()
+        .then(() => {
+          sendResponse({ success: true })
+        })
         .catch((error) => {
-          console.error('Content processing failed:', error)
+          console.error('Model download failed:', error)
+          sendResponse({ error: error.message })
+        })
+      return true
+
+    case 'START_ANALYSIS':
+      console.log('Analysis requested for tab:', message.tabId)
+      console.log('===== BACKGROUND SCRIPT DEBUG =====')
+      console.log('Received chatHistory:', message.chatHistory?.length || 0, 'messages')
+      console.log('Received isFirstMessage:', message.isFirstMessage)
+      if (message.chatHistory && message.chatHistory.length > 0) {
+        console.log('Chat history details:')
+        message.chatHistory.forEach((msg: any, i: number) => {
+          console.log(`  ${i}: ${msg?.role || 'unknown'} - ${(msg?.content || '').substring(0, 50)}...`)
+        })
+      }
+      console.log('===== END BACKGROUND SCRIPT DEBUG =====')
+      
+      handleAnalysis(message.tabId, message.userPrompt, message.chatHistory, message.isFirstMessage, sender)
+        .then(() => {
+          sendResponse({ success: true })
+        })
+        .catch((error) => {
+          console.error('Analysis failed:', error)
           sendResponse({ error: error.message })
         })
       return true
@@ -82,16 +213,114 @@ async function handleStartAnalysis(tabId: number): Promise<void> {
 }
 
 function extractPageContent(): void {
+  console.log('Extracting page content...')
+  
+  // より確実にコンテンツを取得
+  const bodyText = document.body?.innerText || document.body?.textContent || ''
+  const htmlContent = document.documentElement?.outerHTML || ''
+  
+  console.log('Extracted content lengths:', {
+    bodyText: bodyText.length,
+    htmlContent: htmlContent.length,
+    title: document.title
+  })
+  
   const content = {
     url: window.location.href,
     title: document.title,
-    text: document.body.innerText,
+    text: htmlContent, // HTMLを直接送信
+    content: {
+      visibleText: [bodyText],
+      hiddenText: [],
+      metadata: [document.title]
+    }
   }
+  
+  console.log('Sending PAGE_CONTENT message with text length:', content.text.length)
   
   chrome.runtime.sendMessage({
     type: 'PAGE_CONTENT',
     data: content,
   })
+}
+
+async function handlePreloadPageContent(tabId: number): Promise<any> {
+  try {
+    // 現在のタブのURLを取得してキャッシュを確認
+    const tab = await chrome.tabs.get(tabId)
+    const cached = getCachedPageContent(tabId, tab.url || '')
+    
+    if (cached) {
+      console.log('Using cached content for tab:', tabId)
+      const settings = aiManager.getSettings()
+      return {
+        url: cached.url,
+        title: cached.title,
+        originalContent: cached.html,
+        processedContent: cached.processedContent,
+        contentLevel: settings.contentLevel
+      }
+    }
+    
+    console.log('Fetching fresh content for tab:', tabId)
+    
+    // Content Scriptを実行
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: extractPageContent,
+    })
+    
+    // ページコンテンツの受信を待つ
+    return new Promise((resolve) => {
+      const listener = (message: Message, sender: chrome.runtime.MessageSender) => {
+        if (sender.tab?.id === tabId && message.type === 'PAGE_CONTENT') {
+          chrome.runtime.onMessage.removeListener(listener)
+          
+          const settings = aiManager.getSettings()
+          
+          // HTMLテキストを使用
+          const htmlContent = message.data.text || ''
+          console.log('Processing preloaded content:', {
+            textLength: htmlContent.length,
+            contentLevel: settings.contentLevel
+          })
+          
+          const processedContent = processContentByLevel(
+            settings.contentLevel,
+            htmlContent
+          )
+          
+          // キャッシュに保存
+          setCachedPageContent(tabId, {
+            url: message.data.url,
+            title: message.data.title,
+            html: htmlContent,
+            processedContent: processedContent,
+            timestamp: Date.now()
+          })
+          
+          resolve({
+            url: message.data.url,
+            title: message.data.title,
+            originalContent: htmlContent,
+            processedContent: processedContent,
+            contentLevel: settings.contentLevel
+          })
+        }
+      }
+      
+      chrome.runtime.onMessage.addListener(listener)
+      
+      // タイムアウトを15秒に延長し、詳細なログを追加
+      setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(listener)
+        console.error('Preload page content timeout for tab:', tabId)
+        resolve({ error: 'ページコンテンツ取得がタイムアウトしました' })
+      }, 15000)
+    })
+  } catch (error) {
+    throw new Error('ページコンテンツの取得に失敗しました: ' + error)
+  }
 }
 
 async function handlePageContent(data: { url: string; title: string; text: string }): Promise<{ success: boolean; data: unknown }> {
@@ -101,32 +330,24 @@ async function handlePageContent(data: { url: string; title: string; text: strin
       textLength: data.text?.length || 0,
     })
 
-    // AIセッションを初期化
-    await aiSession.initialize()
+    // AI Managerを初期化
+    await aiManager.initialize()
 
-    // テキストを分析（現時点では全体を一度に送信、Phase 2でチャンク処理を実装）
-    const analysisResult = await aiSession.analyzeText(data.text)
-    
-    // 結果をパース
-    const parsedResult = aiSession.parseAnalysisResult(analysisResult)
-
-    // トークン情報を取得
-    const tokenInfo = aiSession.getTokensInfo()
-    if (tokenInfo) {
-      console.log('Token usage:', tokenInfo)
-    }
+    // テキストを分析（デフォルトプロンプト）
+    const analysisResult = await aiManager.analyzeContent('このページの内容を分析してください', data.text)
 
     // Popup UIに結果を送信
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_COMPLETE',
       data: {
-        ...parsedResult,
+        fullText: analysisResult.result,
         url: data.url,
-        tokenInfo,
+        provider: analysisResult.provider,
+        tokenInfo: analysisResult.tokenInfo,
       },
     })
 
-    return { success: true, data: parsedResult }
+    return { success: true, data: analysisResult.result }
   } catch (error) {
     console.error('Failed to process content:', error)
     
@@ -142,6 +363,521 @@ async function handlePageContent(data: { url: string; title: string; text: strin
       },
     })
 
+    throw error
+  }
+}
+
+async function handleModelDownload(): Promise<void> {
+  try {
+    await aiManager.initialize()
+    const currentProvider = aiManager.getCurrentProvider()
+    
+    if (currentProvider && 'initiateModelDownload' in currentProvider) {
+      const chromeNanoProvider = currentProvider as any
+      await chromeNanoProvider.initiateModelDownload()
+    } else {
+      throw new Error('Model download is only available for Chrome built-in AI')
+    }
+  } catch (error) {
+    console.error('Model download failed:', error)
+    throw error
+  }
+}
+
+async function handleAnalysis(
+  tabId: number, 
+  userPrompt: string, 
+  chatHistory: ChatMessage[] = [], 
+  isFirstMessage: boolean = true, 
+  sender: chrome.runtime.MessageSender
+): Promise<void> {
+  try {
+    console.log('Starting analysis for tab:', tabId, { isFirstMessage, historyLength: chatHistory.length })
+    
+    let pageData: { url: string; title: string; html: string } | null = null
+    let processedContent = ''
+    
+    if (isFirstMessage) {
+      // 初回メッセージの場合：ページHTML全体を抽出してキャッシュ
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          return {
+            url: window.location.href,
+            title: document.title,
+            html: document.documentElement.outerHTML,
+          }
+        },
+      })
+      
+      if (!results || results.length === 0 || !results[0].result) {
+        throw new Error('Failed to extract page content')
+      }
+      
+      pageData = results[0].result
+      console.log('Page HTML extracted for first message:', {
+        url: pageData.url,
+        htmlLength: pageData.html?.length || 0,
+        title: pageData.title
+      })
+      
+      console.log('Raw HTML preview (first 200 chars):', pageData.html.substring(0, 200))
+      
+      // コンテンツを処理してキャッシュに保存
+      const settings = aiManager.getSettings()
+      processedContent = processContentByLevel(settings.contentLevel, pageData.html)
+      
+      console.log('Processed content details:', {
+        contentLevel: settings.contentLevel,
+        originalLength: pageData.html?.length || 0,
+        processedLength: processedContent?.length || 0,
+        processedPreview: processedContent?.substring(0, 200) || 'EMPTY'
+      })
+      
+      setCachedPageContent(tabId, {
+        url: pageData.url,
+        title: pageData.title,
+        html: pageData.html,
+        processedContent: processedContent,
+        timestamp: Date.now()
+      })
+      
+    } else {
+      // 継続メッセージの場合：ページコンテンツは送信しない（会話履歴のみを使用）
+      console.log('Continuing conversation without page content (using chat history only)')
+      console.log('isFirstMessage is false, chatHistory length:', chatHistory?.length || 0)
+      processedContent = '' // 空文字列に設定
+    }
+    
+    // AI処理を開始
+    await processAnalysis(pageData, processedContent, userPrompt, chatHistory, isFirstMessage, sender)
+    
+  } catch (error) {
+    console.error('Failed to start analysis:', error)
+    throw error
+  }
+}
+
+function processContentByLevel(contentLevel: ContentLevel, html: string): string {
+  console.log('processContentByLevel called:', {
+    contentLevel,
+    htmlLength: html?.length || 0,
+    htmlPreview: html?.substring(0, 100) || 'EMPTY'
+  })
+  
+  try {
+    switch (contentLevel) {
+      case 'text-only':
+        // 重要度を加味したマークダウン変換
+        const markdownResult = htmlToMarkdown(html, true)
+        console.log('htmlToMarkdown result:', {
+          length: markdownResult?.length || 0,
+          preview: markdownResult?.substring(0, 100) || 'EMPTY'
+        })
+        return markdownResult
+
+      case 'html-only':
+        // HTML構造のみ（CSS・JavaScriptを除去）
+        return html
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+          .replace(/<!--[\s\S]*?-->/g, '')
+          .replace(/\s+(on\w+)="[^"]*"/gi, '')
+          .replace(/\s+(data-[\w-]+)="[^"]*"/gi, '')
+          .replace(/\s+style="[^"]*"/gi, '') // インラインCSSも除去
+          .replace(/\n\s+/g, '\n')
+          .replace(/\s{3,}/g, '  ')
+          .replace(/\n{2,}/g, '\n')
+          .trim()
+
+      case 'html-css':
+        // HTML + CSS（JavaScript除去）
+        return html
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<!--(?!\s*\[if)(?!.*?<!\[endif\])[\s\S]*?-->/g, '')
+          .replace(/\s+(on\w+)="[^"]*"/gi, '')
+          .replace(/\s+(data-[\w-]+)="[^"]*"/gi, '')
+          .replace(/\n\s+/g, '\n')
+          .replace(/\s{3,}/g, '  ')
+          .replace(/\n{2,}/g, '\n')
+          .trim()
+
+      case 'html-css-js':
+        // 全て含む（最小限の最適化のみ）
+        return html
+          .replace(/<!--(?!\s*\[if)(?!.*?<!\[endif\])[\s\S]*?-->/g, '')
+          .replace(/\n\s+/g, '\n')
+          .replace(/\s{3,}/g, '  ')
+          .replace(/\n{2,}/g, '\n')
+          .trim()
+
+      default:
+        console.warn('Unknown content level, using html-css as default:', contentLevel)
+        return processContentByLevel('html-css', html)
+    }
+  } catch (error) {
+    console.warn('Content processing failed, using original:', error)
+    return html
+  }
+}
+
+function htmlToMarkdown(html: string, textOnly = false): string {
+  try {
+    if (!textOnly) {
+      return html
+    }
+
+    let processedHtml = html
+
+    // 低重要度要素を除去
+    const lowPriorityElements = [
+      /<nav\b[^>]*>[\s\S]*?<\/nav>/gi,
+      /<footer\b[^>]*>[\s\S]*?<\/footer>/gi,
+      /<aside\b[^>]*>[\s\S]*?<\/aside>/gi,
+      /<header\s+class="[^"]*site-header[^"]*"[^>]*>[\s\S]*?<\/header>/gi,
+      /<div\s+class="[^"]*navigation[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*menu[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*sidebar[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*ads?[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*advertisement[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*social-share[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*comments[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      /<div\s+class="[^"]*related-posts[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    ]
+
+    // 低重要度要素を除去
+    lowPriorityElements.forEach(regex => {
+      processedHtml = processedHtml.replace(regex, '')
+    })
+
+    // スクリプトとスタイルを除去
+    processedHtml = processedHtml
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+
+    let markdown = ''
+
+    // タイトルの抽出
+    const titleMatch = processedHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+    if (titleMatch && titleMatch[1]) {
+      const title = titleMatch[1].trim()
+      if (title) {
+        markdown += `# ${title}\n\n`
+      }
+    }
+
+    // メタデスクリプションの抽出
+    const descMatch = processedHtml.match(/<meta\s+name="description"\s+content="([^"]*)"[^>]*>/i)
+    if (descMatch && descMatch[1]) {
+      const description = descMatch[1].trim()
+      if (description) {
+        markdown += `> ${description}\n\n`
+      }
+    }
+
+    // 見出しの変換 (h1-h6)
+    for (let i = 6; i >= 1; i--) {
+      const headingRegex = new RegExp(`<h${i}[^>]*>([\\s\\S]*?)<\\/h${i}>`, 'gi')
+      const headingMarker = '#'.repeat(i)
+      processedHtml = processedHtml.replace(headingRegex, (match, content) => {
+        const text = extractTextContent(content).trim()
+        return text ? `\n${headingMarker} ${text}\n\n` : ''
+      })
+    }
+
+    // 段落の変換
+    processedHtml = processedHtml.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (match, content) => {
+      const text = convertInlineElementsToMarkdown(content).trim()
+      return text ? `${text}\n\n` : ''
+    })
+
+    // 引用の変換
+    processedHtml = processedHtml.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (match, content) => {
+      const text = extractTextContent(content).trim()
+      return text ? `> ${text}\n\n` : ''
+    })
+
+    // 順序なしリストの変換
+    processedHtml = processedHtml.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (match, content) => {
+      return convertListToMarkdown(content, '- ')
+    })
+
+    // 順序ありリストの変換
+    processedHtml = processedHtml.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (match, content) => {
+      return convertListToMarkdown(content, '1. ', true)
+    })
+
+    // preタグの変換
+    processedHtml = processedHtml.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (match, content) => {
+      const text = extractTextContent(content).trim()
+      return text ? `\n\`\`\`\n${text}\n\`\`\`\n\n` : ''
+    })
+
+    // インライン要素の変換
+    processedHtml = convertInlineElementsToMarkdown(processedHtml)
+
+    // 残りのHTMLタグを除去してテキストに変換
+    markdown += extractTextContent(processedHtml)
+
+    // マークダウンの後処理
+    return markdown
+      .replace(/\n{3,}/g, '\n\n') // 連続する改行を2つまでに制限
+      .replace(/^\s+|\s+$/gm, '') // 各行の前後の空白を除去
+      .replace(/\s+/g, ' ') // 連続空白を単一に
+      .trim()
+
+  } catch (error) {
+    console.warn('Markdown conversion failed, falling back to text extraction:', error)
+    // フォールバック：シンプルなテキスト抽出
+    return html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+}
+
+function convertInlineElementsToMarkdown(html: string): string {
+  // 強調（strong, b）
+  html = html.replace(/<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, (match, content) => {
+    const text = extractTextContent(content).trim()
+    return text ? `**${text}**` : ''
+  })
+
+  // 斜体（em, i）
+  html = html.replace(/<(?:em|i)[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, (match, content) => {
+    const text = extractTextContent(content).trim()
+    return text ? `*${text}*` : ''
+  })
+
+  // インラインコード
+  html = html.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (match, content) => {
+    const text = extractTextContent(content).trim()
+    return text ? `\`${text}\`` : ''
+  })
+
+  // リンク
+  html = html.replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (match, href, content) => {
+    const text = extractTextContent(content).trim()
+    return text && href ? `[${text}](${href})` : text || ''
+  })
+
+  // 画像
+  html = html.replace(/<img\s+[^>]*src="([^"]*)"[^>]*(?:alt="([^"]*)"[^>]*)?[^>]*>/gi, (match, src, alt) => {
+    return src ? `![${alt || ''}](${src})` : ''
+  })
+
+  // 改行
+  html = html.replace(/<br\s*\/?>/gi, '\n')
+
+  return html
+}
+
+function convertListToMarkdown(listContent: string, marker: string, ordered = false): string {
+  let markdown = ''
+  let counter = 1
+
+  // li要素を抽出
+  const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi
+  let match
+
+  while ((match = liRegex.exec(listContent)) !== null) {
+    const itemContent = match[1]
+    const text = convertInlineElementsToMarkdown(itemContent)
+    const cleanText = extractTextContent(text).trim()
+    
+    if (cleanText) {
+      const listMarker = ordered ? `${counter}. ` : marker
+      markdown += `${listMarker}${cleanText}\n`
+      if (ordered) counter++
+    }
+  }
+
+  return markdown ? `\n${markdown}\n` : ''
+}
+
+function extractTextContent(html: string): string {
+  // HTMLタグを全て除去してテキストのみを抽出
+  return html
+    .replace(/<[^>]+>/g, '') // HTMLタグを除去
+    .replace(/&nbsp;/g, ' ') // &nbsp;をスペースに
+    .replace(/&amp;/g, '&')  // &amp;を&に
+    .replace(/&lt;/g, '<')   // &lt;を<に
+    .replace(/&gt;/g, '>')   // &gt;を>に
+    .replace(/&quot;/g, '"') // &quot;を"に
+    .replace(/&#39;/g, "'")  // &#39;を'に
+    .replace(/\s+/g, ' ')    // 連続空白を単一に
+    .trim()
+}
+
+async function processAnalysis(
+  data: { url: string; title: string; html: string } | null,
+  processedContent: string,
+  userPrompt: string,
+  chatHistory: ChatMessage[],
+  isFirstMessage: boolean,
+  sender: chrome.runtime.MessageSender
+): Promise<void> {
+  try {
+    // AI Managerを初期化
+    await aiManager.initialize()
+    
+    // processedContentは既に渡されているのでそのまま使用
+    if (isFirstMessage && data) {
+      // 初回メッセージの場合：サイズチェックを実行
+      const htmlLength = data.html?.length || 0
+      console.log('Processing analysis for first message:', {
+        url: data.url,
+        htmlLength,
+        processedLength: processedContent.length,
+        historyLength: chatHistory.length
+      })
+
+      const processedLength = processedContent.length
+      if (htmlLength > 0) {
+        const reductionPercent = ((htmlLength - processedLength) / htmlLength * 100).toFixed(1)
+        console.log(`Content processing: ${htmlLength} → ${processedLength} bytes (${reductionPercent}% reduced)`)
+      }
+
+      // 処理後のサイズをチェック（Gemini 2.5の制限に基づく）
+      const MAX_SAFE_SIZE = 3.5 * 1024 * 1024 // 約875,000トークン相当（1Mトークン制限の余裕）
+      
+      if (processedLength > MAX_SAFE_SIZE) {
+        const sizeMB = (processedLength / 1024 / 1024).toFixed(2)
+        const maxSizeMB = (MAX_SAFE_SIZE / 1024 / 1024).toFixed(2)
+        const originalSizeMB = (htmlLength / 1024 / 1024).toFixed(2)
+        
+        throw new Error(`ページのコンテンツが大きすぎるため処理できません。\n元サイズ: ${originalSizeMB}MB → 処理後: ${sizeMB}MB\n推奨最大サイズ: ${maxSizeMB}MB\n\nより小さなページでお試しください。`)
+      }
+    } else {
+      // 継続メッセージの場合
+      console.log('Processing continuation message:', {
+        historyLength: chatHistory.length,
+        isFirstMessage,
+        hasCachedContent: processedContent.length > 0
+      })
+    }
+
+    // ストリーミング開始を通知
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_STREAM_START',
+      data: {
+        message: 'AI処理を実行中...'
+      }
+    })
+
+    // AI処理をストリーミングで実行
+    let providerName = 'Unknown'
+    let fullAnalysisResult = ''
+    let finalTokenInfo: TokenInfo | undefined = undefined
+    
+    // プロバイダー名を事前に取得
+    const currentProvider = aiManager.getCurrentProvider()
+    if (currentProvider) {
+      providerName = currentProvider.getProviderName()
+      console.log('Initial provider name:', providerName)
+    } else {
+      console.log('No provider found at start')
+    }
+    
+    console.log('About to call analyzeContentStream:', {
+      userPrompt: userPrompt?.substring(0, 50) || 'EMPTY',
+      processedContent: processedContent?.substring(0, 100) || 'EMPTY',
+      processedContentLength: processedContent?.length || 0,
+      chatHistoryLength: chatHistory?.length || 0,
+      isFirstMessage
+    })
+    
+    await aiManager.analyzeContentStream(userPrompt, processedContent, chatHistory, {
+      onChunk: (chunk) => {
+        // チャンクを受信したらポップアップに送信
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_CHUNK',
+          data: {
+            chunk: chunk.text
+          }
+        })
+        fullAnalysisResult += chunk.text
+      },
+      onComplete: (fullText, tokenInfo) => {
+        fullAnalysisResult = fullText
+        finalTokenInfo = tokenInfo
+        
+        // 完了時に最新のプロバイダー名を取得（フォールバックの場合に変わる可能性があるため）
+        const finalProvider = aiManager.getCurrentProvider()
+        if (finalProvider) {
+          providerName = finalProvider.getProviderName()
+          // フォールバック時の特別な表示
+          if (providerName.includes('Chrome Built-in AI') && currentProvider?.getProviderName().includes('Gemini')) {
+            providerName += ' (fallback)'
+          }
+        }
+        
+        console.log('Analysis completed, sending ANALYSIS_STREAM_END with:')
+        console.log('- provider:', providerName)
+        console.log('- tokenInfo:', finalTokenInfo)
+        console.log('- fullTextLength:', fullText.length)
+        console.log('- currentProviderName:', finalProvider?.getProviderName())
+        console.log('- originalProviderName:', currentProvider?.getProviderName())
+        
+        // 完了時に最終結果を送信
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_END',
+          data: {
+            fullText,
+            provider: providerName,
+            tokenInfo
+          }
+        })
+      },
+      onError: (error) => {
+        chrome.runtime.sendMessage({
+          type: 'ANALYSIS_STREAM_ERROR',
+          data: {
+            message: error.message,
+            error: error.code || 'UNKNOWN_ERROR'
+          }
+        })
+        throw error
+      }
+    })
+    
+    console.log('Analysis completed:', {
+      provider: providerName,
+      resultLength: fullAnalysisResult.length,
+      tokenInfo: finalTokenInfo
+    })
+
+  } catch (error) {
+    console.error('Analysis error:', error)
+    
+    let errorMessage = '処理中にエラーが発生しました'
+    let errorCode = 'UNKNOWN_ERROR'
+    
+    if (error && typeof error === 'object' && 'code' in error) {
+      errorCode = error.code as string
+      const message = 'message' in error ? (error.message as string) : errorMessage
+      errorMessage = message || errorMessage
+    } else if (error instanceof Error) {
+      if (error.message.includes('too large') || error.message.includes('QuotaExceededError') || error.name === 'QuotaExceededError') {
+        errorMessage = 'ページのHTMLが大きすぎるため処理できません。より短いページでお試しください。'
+        errorCode = 'CONTENT_TOO_LARGE'
+      } else {
+        errorMessage = error.message
+      }
+    }
+    
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_ERROR',
+      data: {
+        message: errorMessage,
+        code: errorCode,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    })
+    
     throw error
   }
 }

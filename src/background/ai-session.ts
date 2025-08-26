@@ -15,13 +15,15 @@ export class AISessionManager {
 
       const availability = await LanguageModel.availability()
       console.log('AI availability:', availability)
-      
+
       // 新しいAPIの戻り値をマッピング
       switch (availability) {
         case 'available':
           return 'readily'
         case 'downloading':
           return 'after-download'
+        case 'downloadable':
+          return 'downloadable'
         default:
           return 'no'
       }
@@ -41,9 +43,12 @@ export class AISessionManager {
 
     try {
       const availability = await this.checkAvailability()
-      
+
       if (availability === 'no') {
-        throw this.createError('NOT_AVAILABLE', 'Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
+        throw this.createError(
+          'NOT_AVAILABLE',
+          'Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。'
+        )
       }
 
       if (availability === 'after-download') {
@@ -56,29 +61,8 @@ export class AISessionManager {
 
       console.log('Creating AI session...')
       this.session = await LanguageModel.create({
-        systemPrompt: `あなたは日本語の文章校正アシスタントです。
-与えられたテキストから以下を検出してください：
-1. タイポ（誤字）
-2. 文法エラー
-3. 日本語として不自然な表現
-
-結果は以下のJSON形式で返してください：
-{
-  "errors": [
-    {
-      "type": "typo" | "grammar" | "japanese",
-      "severity": "error" | "warning" | "info",
-      "original": "元のテキスト",
-      "suggestion": "修正案",
-      "context": "周辺のテキスト（オプション）"
-    }
-  ]
-}
-
-エラーが見つからない場合は空の配列を返してください。
-必ず有効なJSONを返してください。`,
-        temperature: 0.2,
-        topK: 3,
+        temperature: 0.7,
+        topK: 10,
       })
 
       console.log('AI session created successfully')
@@ -90,7 +74,7 @@ export class AISessionManager {
     }
   }
 
-  async analyzeText(text: string): Promise<string> {
+  async analyzeText(userPrompt: string, content: string, options?: { signal?: AbortSignal }): Promise<string> {
     if (!this.session) {
       await this.initialize()
     }
@@ -100,32 +84,23 @@ export class AISessionManager {
     }
 
     try {
-      const prompt = `以下のテキストを分析してエラーを検出してください：\n\n${text}`
-      const response = await this.session.prompt(prompt)
+      const prompt = `${userPrompt}
+
+以下のHTML内容を処理してください：
+
+${content}`
+      const response = await this.session.prompt(prompt, options)
       return response
     } catch (error) {
-      console.error('Failed to analyze text:', error)
-      throw this.createError('PROMPT_FAILED', 'テキスト分析に失敗しました。')
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Analysis aborted by user')
+        throw error
+      }
+      console.error('Failed to analyze content:', error)
+      throw this.createError('PROMPT_FAILED', 'コンテンツ分析に失敗しました。')
     }
   }
 
-  parseAnalysisResult(response: string): Partial<AIAnalysisResult> {
-    try {
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        console.warn('No JSON found in response:', response)
-        return { errors: [] }
-      }
-
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        errors: parsed.errors || [],
-      }
-    } catch (error) {
-      console.error('Failed to parse AI response:', error)
-      return { errors: [] }
-    }
-  }
 
   async destroy(): Promise<void> {
     if (this.session) {
@@ -138,15 +113,80 @@ export class AISessionManager {
     }
   }
 
-  getTokensInfo(): { used: number; max: number; remaining: number } | null {
+  getTokensInfo(): { used: number; quota: number; remaining: number } | null {
     if (!this.session) return null
 
     return {
-      used: this.session.tokensSoFar || 0,
-      max: this.session.maxTokens || 0,
-      remaining: this.session.tokensLeft || 0,
+      used: this.session.inputUsage || 0,
+      quota: this.session.inputQuota || 0,
+      remaining: (this.session.inputQuota || 0) - (this.session.inputUsage || 0),
     }
   }
+
+  async initiateModelDownload(): Promise<void> {
+    console.log('Starting AI model download...')
+
+    // ダウンロード開始を通知
+    chrome.runtime.sendMessage({
+      type: 'MODEL_DOWNLOAD_START',
+      data: {
+        message: 'AIモデルのダウンロードを開始しています...',
+      },
+    })
+
+    try {
+      const availability = await this.checkAvailability()
+
+      if (availability === 'downloadable') {
+        // モデルのダウンロードを開始（セッション作成によってトリガーされる）
+        console.log('Creating session to trigger model download...')
+        const session = await LanguageModel.create({
+          initialPrompts: [
+            {
+              role: 'system',
+              content: 'AI model initialization for TypoChecker.',
+            },
+          ],
+        })
+
+        console.log('Model download completed successfully')
+        session.destroy()
+
+        // ダウンロード完了を通知
+        chrome.runtime.sendMessage({
+          type: 'MODEL_DOWNLOAD_COMPLETE',
+          data: {
+            message: 'AIモデルのダウンロードが完了しました！',
+            success: true,
+          },
+        })
+      } else if (availability === 'readily') {
+        // すでに利用可能
+        chrome.runtime.sendMessage({
+          type: 'MODEL_DOWNLOAD_COMPLETE',
+          data: {
+            message: 'AIモデルは既に利用可能です',
+            success: true,
+          },
+        })
+      } else {
+        throw new Error(`Model download cannot be initiated. Availability: ${availability}`)
+      }
+    } catch (error) {
+      console.error('Model download failed:', error)
+
+      chrome.runtime.sendMessage({
+        type: 'MODEL_DOWNLOAD_ERROR',
+        data: {
+          message: 'AIモデルのダウンロードに失敗しました',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+      })
+
+      throw error
+    }
+  }
+
 
   private createError(code: AIError['code'], message: string): AIError {
     return { code, message }

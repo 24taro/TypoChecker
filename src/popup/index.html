@@ -8,66 +8,36 @@
 </head>
 <body>
   <div class="typochecker-popup">
-    <header>
-      <h1>TypoChecker</h1>
-      <div class="status-indicator" id="status"></div>
-    </header>
     
     <main>
-      <section class="analyze-section">
-        <button id="analyze-btn" class="primary-btn">
-          ページをチェック
-        </button>
-        <div class="progress-container hidden" id="progress-container">
-          <div class="progress-bar" id="progress-bar"></div>
-          <span class="progress-text" id="progress-text">0/0 チャンク処理中...</span>
-        </div>
-      </section>
-      
-      <section class="summary-section hidden" id="summary-section">
-        <div class="stats">
-          <div class="stat-item">
-            <span class="stat-label">タイポ</span>
-            <span class="stat-value typo-count" id="typo-count">0</span>
+      <section class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-message assistant" id="initial-message">
+            <div class="message-content assistant">
+              <p>このページの内容について、以下の情報を使って質問にお答えします：</p>
+              <ul>
+                <li><strong>使用AI：</strong><span id="ai-provider-info">Loading...</span></li>
+                <li><strong>送信情報：</strong>
+                  <ul id="content-info">
+                    <li>Loading...</li>
+                    <li><a href="#" id="download-content" class="download-link disabled">送信情報をダウンロード</a></li>
+                  </ul>
+                </li>
+              </ul>
+              <p>メッセージを送信すると、現在のページの情報が自動的に分析対象として送信されます。</p>
+            </div>
+            <div class="message-timestamp">準備完了</div>
           </div>
-          <div class="stat-item">
-            <span class="stat-label">文法</span>
-            <span class="stat-value grammar-count" id="grammar-count">0</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">日本語</span>
-            <span class="stat-value japanese-count" id="japanese-count">0</span>
-          </div>
-        </div>
-      </section>
-      
-      <section class="errors-section hidden" id="errors-section">
-        <div class="filter-tabs">
-          <button class="tab active" data-filter="all">すべて</button>
-          <button class="tab" data-filter="typo">タイポ</button>
-          <button class="tab" data-filter="grammar">文法</button>
-          <button class="tab" data-filter="japanese">日本語</button>
         </div>
         
-        <div class="error-list" id="error-list">
+        <div class="chat-input-container">
+          <textarea id="user-prompt" class="chat-input" rows="1" placeholder="ページについて質問してください..."></textarea>
+          <button id="clear-chat" class="clear-btn" title="チャット履歴をクリア">🗑️</button>
+          <button id="settings-link-btn" class="settings-btn" title="設定を開く">⚙️</button>
+          <button id="send-btn" class="send-btn" disabled>送信</button>
         </div>
       </section>
-      
-      <div class="error-detail-modal hidden" id="error-modal">
-        <div class="modal-content">
-          <h3>エラー詳細</h3>
-          <div class="error-context" id="error-context"></div>
-          <div class="suggestion-box">
-            <button class="copy-btn" id="copy-suggestion">修正案をコピー</button>
-          </div>
-        </div>
-      </div>
     </main>
-    
-    <footer>
-      <button class="export-btn" id="export-btn">結果をエクスポート</button>
-      <button class="settings-btn" id="settings-btn">設定</button>
-    </footer>
   </div>
   
   <script type="module" src="index.ts"></script>
