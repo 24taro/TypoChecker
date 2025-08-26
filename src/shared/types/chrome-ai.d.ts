@@ -35,14 +35,13 @@ export interface AIAnalysisResult {
     type: 'typo' | 'grammar' | 'japanese'
     severity: 'error' | 'warning' | 'info'
     original: string
-    suggestion?: string
-    explanation?: string
+    suggestion: string
     context?: string
     position?: {
       start: number
       end: number
     }
   }>
-  processedChunks?: number
-  totalChunks?: number
+  processedChunks: number
+  totalChunks: number
 }

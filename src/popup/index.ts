@@ -1,5 +1,4 @@
 import type { TypoError, AnalysisResult } from '../shared/types/messages'
-import { StorageManager } from '../shared/storage'
 
 class PopupUI {
   private analyzeBtn: HTMLButtonElement
@@ -9,7 +8,6 @@ class PopupUI {
   private summarySection: HTMLElement
   private errorsSection: HTMLElement
   private errorList: HTMLElement
-  private settingsSection: HTMLElement
   
   constructor() {
     this.analyzeBtn = document.getElementById('analyze-btn') as HTMLButtonElement
@@ -19,12 +17,10 @@ class PopupUI {
     this.summarySection = document.getElementById('summary-section') as HTMLElement
     this.errorsSection = document.getElementById('errors-section') as HTMLElement
     this.errorList = document.getElementById('error-list') as HTMLElement
-    this.settingsSection = document.getElementById('settings-section') as HTMLElement
     
     this.setupEventListeners()
     this.setupMessageListeners()
     this.checkAIAvailability()
-    this.loadApiKey()
   }
   
   private setupEventListeners(): void {
@@ -42,20 +38,7 @@ class PopupUI {
     })
     
     document.getElementById('settings-btn')?.addEventListener('click', () => {
-      this.toggleSettings()
-    })
-    
-    document.getElementById('save-api-key-btn')?.addEventListener('click', () => {
-      this.saveApiKey()
-    })
-    
-    document.getElementById('clear-api-key-btn')?.addEventListener('click', () => {
-      this.clearApiKey()
-    })
-    
-    document.getElementById('ai-provider-select')?.addEventListener('change', (e) => {
-      const provider = (e.target as HTMLSelectElement).value as 'chrome-ai' | 'gemini-api'
-      this.setAIProvider(provider)
+      chrome.runtime.openOptionsPage()
     })
   }
   
@@ -213,46 +196,7 @@ class PopupUI {
   
   private showError(message: string): void {
     console.error(message)
-    
-    // 長いメッセージの場合は詳細エラー表示
-    if (message.length > 100) {
-      this.showDetailedError(message)
-    } else {
-      this.showToast(message, 'error')
-    }
-  }
-  
-  private showDetailedError(message: string): void {
-    // 既存のエラー表示を削除
-    const existingError = document.querySelector('.detailed-error')
-    if (existingError) {
-      existingError.remove()
-    }
-    
-    // 詳細エラー表示を作成
-    const errorDiv = document.createElement('div')
-    errorDiv.className = 'detailed-error'
-    errorDiv.innerHTML = `
-      <div class="detailed-error-content">
-        <h3>エラー</h3>
-        <div class="error-message">${this.escapeHtml(message).replace(/\n/g, '<br>')}</div>
-        <button class="close-error-btn">閉じる</button>
-      </div>
-    `
-    
-    document.body.appendChild(errorDiv)
-    
-    // 閉じるボタンのイベント
-    errorDiv.querySelector('.close-error-btn')?.addEventListener('click', () => {
-      errorDiv.remove()
-    })
-    
-    // エラー領域外クリックで閉じる
-    errorDiv.addEventListener('click', (e) => {
-      if (e.target === errorDiv) {
-        errorDiv.remove()
-      }
-    })
+    this.showToast(message, 'error')
   }
   
   private showMessage(message: string): void {
@@ -293,23 +237,9 @@ class PopupUI {
         return
       }
 
-      const provider = await StorageManager.getAIProvider()
-      
       switch (response.availability) {
         case 'no':
-          if (provider === 'gemini-api') {
-            this.showError('Gemini API Keyが設定されていません。設定ボタンからAPI Keyを入力してください。')
-          } else {
-            this.showError(`Chrome AI APIは利用できません。
-            
-必要な設定：
-1. Chrome 138以降を使用
-2. chrome://flags/#built-in-ai-api を Enabled に設定
-3. chrome://flags/#gemini-nano-api を Enabled に設定（必要に応じて）
-4. Chromeを再起動
-
-代替案：設定からGemini 2.5 Flash APIに切り替え`)
-          }
+          this.showError('Chrome AI APIは利用できません。Chrome 138以降でフラグを有効にしてください。')
           this.analyzeBtn.disabled = true
           break
         
@@ -318,13 +248,7 @@ class PopupUI {
           break
         
         case 'readily':
-          if (provider === 'gemini-api') {
-            console.log('AI API is ready (Gemini 2.5 Flash)')
-            this.showMessage('Gemini 2.5 Flash準備完了')
-          } else {
-            console.log('Chrome AI API is ready (Gemini Nano)')
-            this.showMessage('Chrome内蔵AI準備完了')
-          }
+          console.log('Chrome AI API is ready')
           break
       }
     } catch (error) {
@@ -333,113 +257,13 @@ class PopupUI {
     }
   }
 
-  private toggleSettings(): void {
-    // 他のセクションを非表示
-    this.summarySection.classList.add('hidden')
-    this.errorsSection.classList.add('hidden')
-    
-    // 設定セクションの表示/非表示を切り替え
-    this.settingsSection.classList.toggle('hidden')
-  }
-  
-  private async loadApiKey(): Promise<void> {
-    // プロバイダーの設定を読み込む
-    const provider = await StorageManager.getAIProvider()
-    const select = document.getElementById('ai-provider-select') as HTMLSelectElement
-    if (select) {
-      select.value = provider
-    }
-    
-    // Gemini API設定の表示/非表示
-    const geminiSettings = document.querySelectorAll('.gemini-api-settings')
-    geminiSettings.forEach(el => {
-      if (provider === 'gemini-api') {
-        el.classList.remove('hidden')
-      } else {
-        el.classList.add('hidden')
-      }
-    })
-    
-    // API Keyの読み込み
-    const apiKey = await StorageManager.getApiKey()
-    if (apiKey) {
-      const input = document.getElementById('api-key-input') as HTMLInputElement
-      if (input) {
-        // API Keyの一部だけを表示
-        input.value = apiKey.substring(0, 10) + '...'
-      }
-    }
-  }
-  
-  private async setAIProvider(provider: 'chrome-ai' | 'gemini-api'): Promise<void> {
-    await StorageManager.setAIProvider(provider)
-    
-    // Gemini API設定の表示/非表示
-    const geminiSettings = document.querySelectorAll('.gemini-api-settings')
-    geminiSettings.forEach(el => {
-      if (provider === 'gemini-api') {
-        el.classList.remove('hidden')
-      } else {
-        el.classList.add('hidden')
-      }
-    })
-    
-    await this.checkAIAvailability()
-    
-    if (provider === 'chrome-ai') {
-      this.showMessage('Chrome内蔵AI (Gemini Nano)を使用します')
-    } else {
-      this.showMessage('Gemini 2.5 Flash APIを使用します')
-    }
-  }
-  
-  private async saveApiKey(): Promise<void> {
-    const input = document.getElementById('api-key-input') as HTMLInputElement
-    const apiKey = input.value.trim()
-    
-    if (!apiKey) {
-      this.showError('API Keyを入力してください')
-      return
-    }
-    
-    // ...が含まれている場合は既存のAPIキーなので保存しない
-    if (apiKey.includes('...')) {
-      this.showMessage('API Keyは既に保存されています')
-      return
-    }
-    
-    try {
-      await StorageManager.setApiKey(apiKey)
-      this.showMessage('API Keyを保存しました')
-      await this.loadApiKey()
-      await this.checkAIAvailability()
-    } catch (error) {
-      this.showError('API Keyの保存に失敗しました')
-    }
-  }
-  
-  private async clearApiKey(): Promise<void> {
-    try {
-      await StorageManager.clearApiKey()
-      const input = document.getElementById('api-key-input') as HTMLInputElement
-      if (input) {
-        input.value = ''
-      }
-      this.showMessage('API Keyを削除しました')
-      await this.checkAIAvailability()
-    } catch (error) {
-      this.showError('API Keyの削除に失敗しました')
-    }
-  }
-  
   private handleAnalysisError(error: { code?: string; message?: string } | Error): void {
     this.progressContainer.classList.add('hidden')
     this.analyzeBtn.disabled = false
     
     let message = 'エラーが発生しました'
-    const errorCode = error instanceof Error ? undefined : error.code
     
-    switch (errorCode) {
+    switch (error.code) {
       case 'NOT_AVAILABLE':
         message = 'Chrome AI APIが利用できません。設定を確認してください。'
         break
